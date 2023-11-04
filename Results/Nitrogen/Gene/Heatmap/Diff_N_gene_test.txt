@@ -1,0 +1,17 @@
+"Type"	"P"	"value"	"value2"
+"Nitrate uptake"	1.07334421118422e-09	1	NA
+"Nitrite uptake"	1.07334421118422e-09	1	NA
+"Ammonia uptake"	7.78623034045501e-16	1	NA
+"Nitrogen mineralization, organ-N to ammonia"	2.30168352728516e-09	1	NA
+"Nitrogen assimilation, ammonia to organ-N"	4.09489801326495e-07	1	NA
+"Nitrification, hydroxylamine to ammonia"	1.38349165757403e-10	1	NA
+"Nitrification, hydroxylamine to nitrite"	0.431101971573291	NA	NA
+"Nitrification, ammonia to hydroxylamine"	0.471100202073178	NA	NA
+"Nitrogen fixation, nitrogen to ammonia"	0.00355439758647347	1	NA
+"Denitrification, nitrous oxide to nitrogen"	6.65332509747518e-05	1	NA
+"Denitrification, nitric oxide to nitrous oxide"	0.000791126531703587	1	NA
+"Denitrification, nitrite to nitric oxide"	1.36118830864005e-07	1	NA
+"Assimilatory nitrate reduction, nitrite to ammonia"	6.10881659887818e-22	1	NA
+"Assimilatory nitrate reduction, nitrate to nitrite"	1.81019855385549e-11	1	NA
+"Dissimilatory nitrate reduction, nitrite to ammonia"	0.000858312722762587	1	NA
+"Dissimilatory nitrate reduction, nitrate to nitrite"	1.16426832804103e-16	1	NA
