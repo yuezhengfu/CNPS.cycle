@@ -1,0 +1,4 @@
+"Test"	"R2"	"p.value"
+"Adonis"	0.9879	0.006
+"ANOSIM"	1	0.006
+"MRPP"	0.1256	0.006
