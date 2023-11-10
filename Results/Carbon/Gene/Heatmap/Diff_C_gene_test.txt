@@ -1,0 +1,6 @@
+"Type"	"P"	"value"	"value2"
+"Methanogenesis"	0.000301681485650149	1	NA
+"Fermentation"	2.06270283641006e-07	1	NA
+"Anaerobic C fixation"	1.21659872154086e-06	1	NA
+"Aerobic respiration"	7.5642539884263e-08	1	NA
+"Aerobic C fixation"	8.6729708108645e-09	1	NA
