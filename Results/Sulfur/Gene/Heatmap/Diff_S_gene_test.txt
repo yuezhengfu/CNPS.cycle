@@ -1,0 +1,16 @@
+"Type"	"P"	"value"	"value2"
+"Sulfur assimilation"	1.27043497215022e-05	1	NA
+"Sulfite uptake"	2.99742793891832e-08	1	NA
+"Sulfate uptake"	7.91635496210583e-06	1	NA
+"Sulfur mineralization"	6.38851750386683e-07	1	NA
+"Sulfide cycling, thisulfate to sulfide"	7.23581425593933e-12	1	NA
+"Sulfide cycling, sulfide to (sulfide)n"	9.01197522877023e-05	1	NA
+"Sulfide cycling, sulfide to sulfur"	3.26223954699775e-05	1	NA
+"SOX system"	1.95480345531338e-07	1	NA
+"Dissimilatory sulfate reduction and oxidation, sulfite to sulfide"	7.3856066518843e-06	1	NA
+"Dissimilatory sulfate reduction and oxidation, APS to sulfite"	3.04824212292487e-07	1	NA
+"Dissimilatory sulfate reduction and oxidation, sulfate to APS"	4.46312466516544e-10	1	NA
+"Assimilatory sulfate reduction, sulfite to sulfide"	1.10126751281182e-06	1	NA
+"Assimilatory sulfate reduction, PAPS to sulfite"	0.0210736398508786	1	NA
+"Assimilatory sulfate reduction, APS to PAPS"	1.72209908988841e-07	1	NA
+"Assimilatory sulfate reduction, sulfate to APS"	1.60609576184024e-09	1	NA
