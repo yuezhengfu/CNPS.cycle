@@ -1,0 +1,18 @@
+Package: CNPS.cycle
+Type: Package
+Title: This R package is used to perform element cycle analysis on
+        metagenomic data.
+Version: 1.0.0
+Author: Zhengfu Yue
+Maintainer: Zhengfu Yue <yuezhengfu2011@163.com>
+Description: This R package is used for CNPS element cycle analysis of metagenomic data.
+Depends: R (>= 3.5.0)
+Imports: ggplot2, ggimage, reshape2, RColorBrewer, multcomp, dplyr,
+        tidyverse, viridis, cowplot, grid, tidyr, pheatmap, vegan, ape,
+        ggrepel, FactoMineR
+License: Apache-2.0
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 7.2.3
+NeedsCompilation: no
+Packaged: 2023-11-07 05:34:07 UTC; Tian
