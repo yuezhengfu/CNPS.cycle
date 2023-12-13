@@ -1,0 +1,3306 @@
+---
+title: "CNPS.cycle使用指南"
+author: "Zhengfu Yue"
+date: '2023-09-26'
+output:
+  html_document: default
+  word_document: default
+---
+
+#安装CNPS.cycle包#
+```{r}
+library(devtools) 
+install_github("yuezhengfu/CNPS.cycle")
+```
+
+#加载包和数据#
+```{r}
+#加载包
+library(CNPS.cycle)
+#导入内置数据
+#含样品丰度信息的KEGG功能注释结果，行名为Entry号，最后一列为Description
+data(ko)
+#样品分组文件
+data(group)
+#KEGG功能基因分组文件,包括GeneID、Entry和Pathway等信息
+data(Gene)
+#物种注释结果，包括GeneID和Taxonomy等信息
+data(tax)
+#GeneID在各样品中的丰度结果
+data(abundance)
+```
+
+#数据预处理#
+```{r}
+#去除ko中最后一列Description信息，若无则省略
+ko <- ko[,-ncol(ko)]
+#将第一列设为行名，若已设则省略
+rownames(ko) <- ko[,1]
+ko <- ko[,-1]
+#将所有列数值转化为数值型
+for (i in 1:ncol(ko)) {
+  ko[,i] <- as.numeric(ko[,i])
+}
+
+#计算分组数量和样品数量
+Group_numb <- length(unique(group[,2]))
+Sample_numb <- length(unique(group[,1]))
+
+#删除重复数据，并按“Entry”列对其进行分组和数据转置
+Gene <- Gene[!duplicated(Gene[,1:2]),1:2]
+Gene <- Gene %>%
+  group_by(Entry) %>%
+  mutate(index = row_number()) %>%
+  pivot_wider(names_from = Entry,
+              values_from = GeneID) %>%
+  select(-index)
+
+#修改tax的列名称
+colnames(tax) <- c("V1","V2")
+#删除V2列中与".*;k__"匹配的字符串
+tax$V2 <- gsub(".*;k__","",tax$V2)
+#tax数据框V2列中的每个元素的开头添加“k__”
+tax$V2 <- paste("k__",tax$V2)
+
+#将第一列设为行名，若已设则省略
+rownames(abundance) <- abundance[,1]
+abundance <- abundance[,-1]
+#将所有列数值转化为数值型
+for (i in 1:ncol(abundance)) {
+  abundance[,i] <- as.numeric(abundance[,i])
+}
+#在abundance数据的第一列添加和行名相同的列
+abundance$V1 <- rownames(abundance)
+abundance <- abundance[,c("V1",colnames(abundance)[1:(ncol(abundance)-1)])]
+```
+
+#创建文件夹#
+```{r}
+dir.create("Results")
+dir.create("Results/Carbon")
+dir.create("Results/Carbon/Gene")
+dir.create("Results/Carbon/Gene/Abundance")
+dir.create("Results/Nitrogen")
+dir.create("Results/Nitrogen/Gene")
+dir.create("Results/Nitrogen/Gene/Abundance")
+dir.create("Results/Phosphorus")
+dir.create("Results/Phosphorus/Gene")
+dir.create("Results/Phosphorus/Gene/Abundance")
+dir.create("Results/Sulfur")
+dir.create("Results/Sulfur/Gene")
+dir.create("Results/Sulfur/Gene/Abundance")
+```
+
+#C cycle#
+##提取与C cycle有关的子数据##
+```{r}
+#与C cycle有关的KO号
+C <- c("K00855","K01061","K01602","K08684","K02256","K02262","K02274","K02276",
+       "K00174","K00175","K00244","K01648","K00194","K00197","K03518","K03519",
+       "K03520","K00016","K00400","K00401")
+#提取C cycle有关的KO丰度信息表
+C.ko <- ko[rownames(ko) %in% C,]
+write.table(C.ko,file = "Results/Carbon/Gene/Abundance/C_cycle_ko_abun.txt",sep = "\t")
+#按照7个碳循环过程合并KO丰度信息表
+C.abundance <- Ccyc.abundance(ko)
+write.table(C.abundance,file = "Results/Carbon/Gene/Abundance/C_cycle_gene_abun.txt",
+            sep = "\t",row.names = FALSE)
+```
+
+##按样品分组绘制碳循环丰度热图和差异性检验##
+```{r}
+dir.create("Results/Carbon/Gene/Heatmap")
+result <- abun.heatmap.g(C.abundance,group,Group_numb)
+pdf(file = "Results/Carbon/Gene/Heatmap/C_cycle_gene_abun_group.pdf",
+    width = 2.3 + 0.6*Group_numb,height = 3)
+result[[2]]
+dev.off()
+write.table(result[[1]],"Results/Carbon/Gene/Heatmap/Diff_C_gene_test.txt",sep = "\t",
+            row.names = FALSE)
+```
+
+##碳循环差异基因分析和可视化##
+```{r}
+dir.create("Results/Carbon/Gene/Cycle image")
+result <- fold.change(C.abundance,group)
+write.table(result[[1]],"Results/Carbon/Gene/Cycle image/Gene_fold_change.txt",sep = "\t",
+            row.names = FALSE)
+pdf(file = "Results/Carbon/Gene/Cycle image/Gene_fold_change.pdf",
+    width = 0.6*Group_numb + 2.3,height = 4.5)
+result[[3]]
+dev.off()
+```
+
+##碳循环模式图可视化##
+```{r}
+#提取7个碳循环类别的热图子集
+ACF <- result[[2]] + ylim("Aerobic C fixation")
+ACH4O <- result[[2]] + ylim("Aerobic CH4 oxidation")
+AR <- result[[2]] + ylim("Aerobic respiration")
+AnCF <- result[[2]] + ylim("Anaerobic C fixation")
+COo <- result[[2]] + ylim("CO oxidation")
+Fer <- result[[2]] + ylim("Fermentation")
+Meth <- result[[2]] + ylim("Methanogenesis")
+
+#绘制碳循环模式图
+C.img <- system.file("data", "Ccyc.pdf", package = "CNPS.cycle")
+pdf("Results/Carbon/Gene/Cycle image/C_cyc_fold_change.pdf",width = 13,height = 7)
+gg <- ggplot()
+ggbackground(gg,C.img)
+if (rowSums(C.abundance[1,2:ncol(C.abundance)]) > 0) {
+  print(ACF,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                          x = 0.692,y = 0.87))
+}
+if (rowSums(C.abundance[2,2:ncol(C.abundance)]) > 0) {
+  print(ACH4O,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                            x = 0.5935,y = 0.23))
+}
+if (rowSums(C.abundance[3,2:ncol(C.abundance)]) > 0) {
+  print(AR,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                         x = 0.612,y = 0.64))
+}
+if (rowSums(C.abundance[4,2:ncol(C.abundance)]) > 0) {
+  print(AnCF,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                           x = 0.322,y = 0.86))
+}
+if (rowSums(C.abundance[5,2:ncol(C.abundance)]) > 0) {
+  print(COo,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                          x = 0.812,y = 0.385))
+}
+if (rowSums(C.abundance[6,2:ncol(C.abundance)]) > 0) {
+  print(Fer,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                          x = 0.36,y = 0.45))
+}
+if (rowSums(C.abundance[7,2:ncol(C.abundance)]) > 0) {
+  print(Meth,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                           x = 0.362,y = 0.34))
+}
+dev.off()
+```
+
+##碳循环基因宿主微生物的相对丰度统计##
+```{r}
+#检查输入数据中是否存在来自预定义类别的碳循环基因 ID
+#返回一个二进制向量，指示每个类别存在 (1) 或不存在 (0)
+Ccyc.h <- Ccyc.host(Gene)
+
+dir.create("Results/Carbon/Host_relative_Group")
+
+#Aerobic C fixation宿主统计
+if (rowSums(C.abundance[1,2:ncol(C.abundance)]) > 0 & Ccyc.h[1] == 1) {
+  dir.create("Results/Carbon/Host_relative_Group/ACF")
+  ACF <- ACF(Gene,tax,abundance,group)
+  write.csv(ACF[[1]],file = "Results/Carbon/Host_relative_Group/ACF/ACF_phylum.csv")
+  write.csv(ACF[[2]],file = "Results/Carbon/Host_relative_Group/ACF/ACF_class.csv")
+  write.csv(ACF[[3]],file = "Results/Carbon/Host_relative_Group/ACF/ACF_order.csv")
+  write.csv(ACF[[4]],file = "Results/Carbon/Host_relative_Group/ACF/ACF_family.csv")
+  write.csv(ACF[[5]],file = "Results/Carbon/Host_relative_Group/ACF/ACF_genus.csv")
+  write.csv(ACF[[6]],file = "Results/Carbon/Host_relative_Group/ACF/ACF_species.csv")
+}
+
+#Aerobic CH4 oxidation宿主统计
+if (rowSums(C.abundance[2,2:ncol(C.abundance)]) > 0 & Ccyc.h[2] == 1) {
+  dir.create("Results/Carbon/Host_relative_Group/ACH4O")
+  ACH4O <- ACH4O(Gene,tax,abundance,group)
+  write.csv(ACH4O[[1]],file = "Results/Carbon/Host_relative_Group/ACH4O/ACH4O_phylum.csv")
+  write.csv(ACH4O[[2]],file = "Results/Carbon/Host_relative_Group/ACH4O/ACH4O_class.csv")
+  write.csv(ACH4O[[3]],file = "Results/Carbon/Host_relative_Group/ACH4O/ACH4O_order.csv")
+  write.csv(ACH4O[[4]],file = "Results/Carbon/Host_relative_Group/ACH4O/ACH4O_family.csv")
+  write.csv(ACH4O[[5]],file = "Results/Carbon/Host_relative_Group/ACH4O/ACH4O_genus.csv")
+  write.csv(ACH4O[[6]],file = "Results/Carbon/Host_relative_Group/ACH4O/ACH4O_species.csv")
+}
+
+#Aerobic respiration宿主统计
+if (rowSums(C.abundance[3,2:ncol(C.abundance)]) > 0 & Ccyc.h[3] == 1) {
+  dir.create("Results/Carbon/Host_relative_Group/AR")
+  AR <- AR(Gene,tax,abundance,group)
+  write.csv(AR[[1]],file = "Results/Carbon/Host_relative_Group/AR/AR_phylum.csv")
+  write.csv(AR[[2]],file = "Results/Carbon/Host_relative_Group/AR/AR_class.csv")
+  write.csv(AR[[3]],file = "Results/Carbon/Host_relative_Group/AR/AR_order.csv")
+  write.csv(AR[[4]],file = "Results/Carbon/Host_relative_Group/AR/AR_family.csv")
+  write.csv(AR[[5]],file = "Results/Carbon/Host_relative_Group/AR/AR_genus.csv")
+  write.csv(AR[[6]],file = "Results/Carbon/Host_relative_Group/AR/AR_species.csv")
+}
+
+#Anaerobic C fixation宿主统计
+if (rowSums(C.abundance[4,2:ncol(C.abundance)]) > 0 & Ccyc.h[4] == 1) {
+  dir.create("Results/Carbon/Host_relative_Group/AnCF")
+  AnCF <- AnCF(Gene,tax,abundance,group)
+  write.csv(AnCF[[1]],file = "Results/Carbon/Host_relative_Group/AnCF/AnCF_phylum.csv")
+  write.csv(AnCF[[2]],file = "Results/Carbon/Host_relative_Group/AnCF/AnCF_class.csv")
+  write.csv(AnCF[[3]],file = "Results/Carbon/Host_relative_Group/AnCF/AnCF_order.csv")
+  write.csv(AnCF[[4]],file = "Results/Carbon/Host_relative_Group/AnCF/AnCF_family.csv")
+  write.csv(AnCF[[5]],file = "Results/Carbon/Host_relative_Group/AnCF/AnCF_genus.csv")
+  write.csv(AnCF[[6]],file = "Results/Carbon/Host_relative_Group/AnCF/AnCF_species.csv")
+}
+
+#CO oxidation宿主统计
+if (rowSums(C.abundance[5,2:ncol(C.abundance)]) > 0 & Ccyc.h[5] == 1) {
+  dir.create("Results/Carbon/Host_relative_Group/COo")
+  COo <- COo(Gene,tax,abundance,group)
+  write.csv(COo[[1]],file = "Results/Carbon/Host_relative_Group/COo/COo_phylum.csv")
+  write.csv(COo[[2]],file = "Results/Carbon/Host_relative_Group/COo/COo_class.csv")
+  write.csv(COo[[3]],file = "Results/Carbon/Host_relative_Group/COo/COo_order.csv")
+  write.csv(COo[[4]],file = "Results/Carbon/Host_relative_Group/COo/COo_family.csv")
+  write.csv(COo[[5]],file = "Results/Carbon/Host_relative_Group/COo/COo_genus.csv")
+  write.csv(COo[[6]],file = "Results/Carbon/Host_relative_Group/COo/COo_species.csv")
+}
+
+#Fermentation宿主统计
+if (rowSums(C.abundance[6,2:ncol(C.abundance)]) > 0 & Ccyc.h[6] == 1) {
+  dir.create("Results/Carbon/Host_relative_Group/Fer")
+  Fer <- Fer(Gene,tax,abundance,group)
+  write.csv(Fer[[1]],file = "Results/Carbon/Host_relative_Group/Fer/Fer_phylum.csv")
+  write.csv(Fer[[2]],file = "Results/Carbon/Host_relative_Group/Fer/Fer_class.csv")
+  write.csv(Fer[[3]],file = "Results/Carbon/Host_relative_Group/Fer/Fer_order.csv")
+  write.csv(Fer[[4]],file = "Results/Carbon/Host_relative_Group/Fer/Fer_family.csv")
+  write.csv(Fer[[5]],file = "Results/Carbon/Host_relative_Group/Fer/Fer_genus.csv")
+  write.csv(Fer[[6]],file = "Results/Carbon/Host_relative_Group/Fer/Fer_species.csv")
+}
+
+#Methanogenesis宿主统计
+#if (rowSums(C.abundance[7,2:ncol(C.abundance)]) > 0 & Ccyc.h[7] == 1) {
+#  dir.create("Results/Carbon/Host_relative_Group/Meth")
+#  Meth <- Meth(Gene,tax,abundance,group)
+#  write.csv(Meth[[1]],file = "Results/Carbon/Host_relative_Group/Meth/Meth_phylum.csv")
+#  write.csv(Meth[[2]],file = "Results/Carbon/Host_relative_Group/Meth/Meth_class.csv")
+#  write.csv(Meth[[3]],file = "Results/Carbon/Host_relative_Group/Meth/Meth_order.csv")
+#  write.csv(Meth[[4]],file = "Results/Carbon/Host_relative_Group/Meth/Meth_family.csv")
+#  write.csv(Meth[[5]],file = "Results/Carbon/Host_relative_Group/Meth/Meth_genus.csv")
+#  write.csv(Meth[[6]],file = "Results/Carbon/Host_relative_Group/Meth/Meth_species.csv")
+#}
+```
+
+##碳循环宿主统计结果的可视化##
+```{r}
+#Aerobic C fixation
+if (rowSums(C.abundance[1,2:ncol(C.abundance)]) > 0 & Ccyc.h[1] == 1) {
+  title <- "Aerobic C fixation"
+  aa <- ifelse(nrow(ACF[[1]]) > 5,
+               max(str_length(rownames(ACF[[1]])[1:5])),
+               max(str_length(rownames(ACF[[1]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACF/ACF_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACF[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACF[[2]]) > 5,
+               max(str_length(rownames(ACF[[2]])[1:5])),
+               max(str_length(rownames(ACF[[2]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACF/ACF_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACF[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACF[[3]]) > 5,
+               max(str_length(rownames(ACF[[3]])[1:5])),
+               max(str_length(rownames(ACF[[3]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACF/ACF_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACF[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACF[[4]]) > 5,
+               max(str_length(rownames(ACF[[4]])[1:5])),
+               max(str_length(rownames(ACF[[4]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACF/ACF_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACF[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACF[[5]]) > 5,
+               max(str_length(rownames(ACF[[5]])[1:5])),
+               max(str_length(rownames(ACF[[5]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACF/ACF_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACF[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACF[[6]]) > 5,
+               max(str_length(rownames(ACF[[6]])[1:5])),
+               max(str_length(rownames(ACF[[6]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACF/ACF_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACF[[6]],title)
+  dev.off()
+}
+
+#Aerobic CH4 oxidation
+if (rowSums(C.abundance[2,2:ncol(C.abundance)]) > 0 & Ccyc.h[2] == 1) {
+  title <- expression(paste("Aerobic CH"["4"]," oxidation"))
+  aa <- ifelse(nrow(ACH4O[[1]]) > 5,
+               max(str_length(rownames(ACH4O[[1]])[1:5])),
+               max(str_length(rownames(ACH4O[[1]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACH4O/ACH4O_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACH4O[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACH4O[[2]]) > 5,
+               max(str_length(rownames(ACH4O[[2]])[1:5])),
+               max(str_length(rownames(ACH4O[[2]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACH4O/ACH4O_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACH4O[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACH4O[[3]]) > 5,
+               max(str_length(rownames(ACH4O[[3]])[1:5])),
+               max(str_length(rownames(ACH4O[[3]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACH4O/ACH4O_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACH4O[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACH4O[[4]]) > 5,
+               max(str_length(rownames(ACH4O[[4]])[1:5])),
+               max(str_length(rownames(ACH4O[[4]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACH4O/ACH4O_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACH4O[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACH4O[[5]]) > 5,
+               max(str_length(rownames(ACH4O[[5]])[1:5])),
+               max(str_length(rownames(ACH4O[[5]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACH4O/ACH4O_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACH4O[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(ACH4O[[6]]) > 5,
+               max(str_length(rownames(ACH4O[[6]])[1:5])),
+               max(str_length(rownames(ACH4O[[6]]))))
+  pdf("Results/Carbon/Host_relative_Group/ACH4O/ACH4O_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ACH4O[[6]],title)
+  dev.off()
+}
+
+#Anaerobic C fixation
+if (rowSums(C.abundance[4,2:ncol(C.abundance)]) > 0 & Ccyc.h[3] == 1) {
+  title <- "Anaerobic C fixation"
+  aa <- ifelse(nrow(AnCF[[1]]) > 5,
+               max(str_length(rownames(AnCF[[1]])[1:5])),
+               max(str_length(rownames(AnCF[[1]]))))
+  pdf("Results/Carbon/Host_relative_Group/AnCF/AnCF_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AnCF[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(AnCF[[2]]) > 5,
+               max(str_length(rownames(AnCF[[2]])[1:5])),
+               max(str_length(rownames(AnCF[[2]]))))
+  pdf("Results/Carbon/Host_relative_Group/AnCF/AnCF_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AnCF[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(AnCF[[3]]) > 5,
+               max(str_length(rownames(AnCF[[3]])[1:5])),
+               max(str_length(rownames(AnCF[[3]]))))
+  pdf("Results/Carbon/Host_relative_Group/AnCF/AnCF_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AnCF[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(AnCF[[4]]) > 5,
+               max(str_length(rownames(AnCF[[4]])[1:5])),
+               max(str_length(rownames(AnCF[[4]]))))
+  pdf("Results/Carbon/Host_relative_Group/AnCF/AnCF_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AnCF[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(AnCF[[5]]) > 5,
+               max(str_length(rownames(AnCF[[5]])[1:5])),
+               max(str_length(rownames(AnCF[[5]]))))
+  pdf("Results/Carbon/Host_relative_Group/AnCF/AnCF_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AnCF[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(AnCF[[6]]) > 5,
+               max(str_length(rownames(AnCF[[6]])[1:5])),
+               max(str_length(rownames(AnCF[[6]]))))
+  pdf("Results/Carbon/Host_relative_Group/AnCF/AnCF_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AnCF[[6]],title)
+  dev.off()
+}
+
+#Aerobic respiration
+if (rowSums(C.abundance[3,2:ncol(C.abundance)]) > 0 & Ccyc.h[4] == 1) {
+  title <- "Aerobic respiration"
+  aa <- ifelse(nrow(AR[[1]]) > 5,
+               max(str_length(rownames(AR[[1]])[1:5])),
+               max(str_length(rownames(AR[[1]]))))
+  pdf("Results/Carbon/Host_relative_Group/AR/AR_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AR[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(AR[[2]]) > 5,
+               max(str_length(rownames(AR[[2]])[1:5])),
+               max(str_length(rownames(AR[[2]]))))
+  pdf("Results/Carbon/Host_relative_Group/AR/AR_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AR[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(AR[[3]]) > 5,
+               max(str_length(rownames(AR[[3]])[1:5])),
+               max(str_length(rownames(AR[[3]]))))
+  pdf("Results/Carbon/Host_relative_Group/AR/AR_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AR[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(AR[[4]]) > 5,
+               max(str_length(rownames(AR[[4]])[1:5])),
+               max(str_length(rownames(AR[[4]]))))
+  pdf("Results/Carbon/Host_relative_Group/AR/AR_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AR[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(AR[[5]]) > 5,
+               max(str_length(rownames(AR[[5]])[1:5])),
+               max(str_length(rownames(AR[[5]]))))
+  pdf("Results/Carbon/Host_relative_Group/AR/AR_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AR[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(AR[[6]]) > 5,
+               max(str_length(rownames(AR[[6]])[1:5])),
+               max(str_length(rownames(AR[[6]]))))
+  pdf("Results/Carbon/Host_relative_Group/AR/AR_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(AR[[6]],title)
+  dev.off()
+}
+
+#CO oxidation
+if (rowSums(C.abundance[5,2:ncol(C.abundance)]) > 0 & Ccyc.h[5] == 1) {
+  title <- "CO oxidation"
+  aa <- ifelse(nrow(COo[[1]]) > 5,
+               max(str_length(rownames(COo[[1]])[1:5])),
+               max(str_length(rownames(COo[[1]]))))
+  pdf("Results/Carbon/Host_relative_Group/COo/COo_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(COo[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(COo[[2]]) > 5,
+               max(str_length(rownames(COo[[2]])[1:5])),
+               max(str_length(rownames(COo[[2]]))))
+  pdf("Results/Carbon/Host_relative_Group/COo/COo_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(COo[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(COo[[3]]) > 5,
+               max(str_length(rownames(COo[[3]])[1:5])),
+               max(str_length(rownames(COo[[3]]))))
+  pdf("Results/Carbon/Host_relative_Group/COo/COo_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(COo[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(COo[[4]]) > 5,
+               max(str_length(rownames(COo[[4]])[1:5])),
+               max(str_length(rownames(COo[[4]]))))
+  pdf("Results/Carbon/Host_relative_Group/COo/COo_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(COo[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(COo[[5]]) > 5,
+               max(str_length(rownames(COo[[5]])[1:5])),
+               max(str_length(rownames(COo[[5]]))))
+  pdf("Results/Carbon/Host_relative_Group/COo/COo_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(COo[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(COo[[6]]) > 5,
+               max(str_length(rownames(COo[[6]])[1:5])),
+               max(str_length(rownames(COo[[6]]))))
+  pdf("Results/Carbon/Host_relative_Group/COo/COo_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(COo[[6]],title)
+  dev.off()
+}
+
+#Fermentation
+if (rowSums(C.abundance[6,2:ncol(C.abundance)]) > 0 & Ccyc.h[6] == 1) {
+  title <- "Fermentation"
+  aa <- ifelse(nrow(Fer[[1]]) > 5,
+               max(str_length(rownames(Fer[[1]])[1:5])),
+               max(str_length(rownames(Fer[[1]]))))
+  pdf("Results/Carbon/Host_relative_Group/Fer/Fer_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Fer[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(Fer[[2]]) > 5,
+               max(str_length(rownames(Fer[[2]])[1:5])),
+               max(str_length(rownames(Fer[[2]]))))
+  pdf("Results/Carbon/Host_relative_Group/Fer/Fer_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Fer[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(Fer[[3]]) > 5,
+               max(str_length(rownames(Fer[[3]])[1:5])),
+               max(str_length(rownames(Fer[[3]]))))
+  pdf("Results/Carbon/Host_relative_Group/Fer/Fer_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Fer[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(Fer[[4]]) > 5,
+               max(str_length(rownames(Fer[[4]])[1:5])),
+               max(str_length(rownames(Fer[[4]]))))
+  pdf("Results/Carbon/Host_relative_Group/Fer/Fer_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Fer[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(Fer[[5]]) > 5,
+               max(str_length(rownames(Fer[[5]])[1:5])),
+               max(str_length(rownames(Fer[[5]]))))
+  pdf("Results/Carbon/Host_relative_Group/Fer/Fer_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Fer[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(Fer[[6]]) > 5,
+               max(str_length(rownames(Fer[[6]])[1:5])),
+               max(str_length(rownames(Fer[[6]]))))
+  pdf("Results/Carbon/Host_relative_Group/Fer/Fer_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Fer[[6]],title)
+  dev.off()
+}
+
+#Methanogenesis
+#if (rowSums(C.abundance[7,2:ncol(C.abundance)]) > 0 & Ccyc.h[7] == 1) {
+#  title <- "Methanogenesis"
+#  aa <- ifelse(nrow(Meth[[1]]) > 5,
+#             max(str_length(rownames(Meth[[1]])[1:5])),
+#               max(str_length(rownames(Meth[[1]]))))
+#  pdf("Results/Carbon/Host_relative_Group/Meth/Meth_phylum.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Meth[[1]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Meth[[2]]) > 5,
+#             max(str_length(rownames(Meth[[2]])[1:5])),
+#               max(str_length(rownames(Meth[[2]]))))
+#  pdf("Results/Carbon/Host_relative_Group/Meth/Meth_class.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Meth[[2]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Meth[[3]]) > 5,
+#             max(str_length(rownames(Meth[[3]])[1:5])),
+#               max(str_length(rownames(Meth[[3]]))))
+#  pdf("Results/Carbon/Host_relative_Group/Meth/Meth_order.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Meth[[3]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Meth[[4]]) > 5,
+#             max(str_length(rownames(Meth[[4]])[1:5])),
+#               max(str_length(rownames(Meth[[4]]))))
+#  pdf("Results/Carbon/Host_relative_Group/Meth/Meth_family.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Meth[[4]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Meth[[5]]) > 5,
+#             max(str_length(rownames(Meth[[5]])[1:5])),
+#               max(str_length(rownames(Meth[[5]]))))
+#  pdf("Results/Carbon/Host_relative_Group/Meth/Meth_genus.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Meth[[5]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Meth[[6]]) > 5,
+#             max(str_length(rownames(Meth[[6]])[1:5])),
+#               max(str_length(rownames(Meth[[6]]))))
+#  pdf("Results/Carbon/Host_relative_Group/Meth/Meth_species.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Meth[[6]],title)
+#  dev.off()
+#}
+
+#### Legend
+df <- data.frame(A = c(0,0.1,0.2,0.3,0.4,0.5),
+                 B = c(0.5,0.6,0.7,0.8,0.9,1))
+df <- t(df)
+df1 <- data.frame(A = c("0%","10%","20%","30%","40%","50%"),
+                  B = c("50%","60%","70%","80%","90%","100%"))
+df1 <- t(df1)
+bk <- c(seq(0,1,by = 0.01))
+pheatmap(df,fontsize = 30,cluster_rows = FALSE,fontface = "bold",cluster_cols = FALSE,
+         cellwidth = 80,cellheight = 50,legend = FALSE,breaks = bk,show_rownames = FALSE,
+         color = colorRampPalette(c("white","Red"))(100),show_colnames = FALSE,
+         display_numbers = df1,number_color = "black",border_color = "black",
+         filename = "Results/Carbon/Host_relative_Group/Legend_relative_Group.pdf",width = 7,height = 2)
+```
+
+##碳循环β多样性分析及可视化##
+```{r}
+cbbPalette <- c("#B2182B","#56B4E9","#E69F00","#009E73","#F0E442","#0072B2",
+                "#D55E00","#CC79A7","#CC6666","#9999CC","#66CC99","#99999",
+                "#ADD1E5")
+
+dir.create("Results/Carbon/Beta diversity")
+dir.create("Results/Carbon/Beta diversity/Distance")
+dir.create("Results/Carbon/Beta diversity/PCA")
+dir.create("Results/Carbon/Beta diversity/PCoA")
+dir.create("Results/Carbon/Beta diversity/NMDS")
+
+result <- pcoa.arg(C.abundance[,2:ncol(C.abundance)],group)
+write.table(as.matrix(result[[1]]),"Results/Carbon/Beta diversity/Distance/distance_bray_curtis.txt",
+            sep = "\t")
+write.table(result[[2]],"Results/Carbon/Beta diversity/Distance/diff_test.txt",sep = "\t",row.names = FALSE)
+write.table(result[[3]],"Results/Carbon/Beta diversity/PCoA/C_pcoa.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Carbon/Beta diversity/PCoA/C_pcoa_group.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+pdf(file = "Results/Carbon/Beta diversity/PCoA/C_pcoa_ellipse.pdf",width = 7.5,height = 5.4)
+result[[5]]
+dev.off()
+pdf(file = "Results/Carbon/Beta diversity/PCoA/C_pcoa_label.pdf",width = 7.5,height = 5.4)
+result[[6]]
+dev.off()
+
+result <- pca.arg(C.abundance[,2:ncol(C.abundance)],group)
+write.table(result[[1]],"Results/Carbon/Beta diversity/PCA/C_pca.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Carbon/Beta diversity/PCA/C_pca_group.pdf",width = 7.5,height = 5.4)
+result[[2]]
+dev.off()
+pdf(file = "Results/Carbon/Beta diversity/PCA/C_pca_ellipse.pdf",width = 7.5,height = 5.4)
+result[[3]]
+dev.off()
+pdf(file = "Results/Carbon/Beta diversity/PCA/C_pca_label.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+
+result <- nmds.arg(C.abundance[,2:ncol(C.abundance)],group)
+write.table(result[[1]],"Results/Carbon/Beta diversity/NMDS/C_stress.txt",sep = "\t",row.names = FALSE)
+write.table(result[[2]],"Results/Carbon/Beta diversity/NMDS/C_nmds.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Carbon/Beta diversity/NMDS/C_nmds_group.pdf",width = 7.5,height = 5.4)
+result[[3]]
+dev.off()
+pdf(file = "Results/Carbon/Beta diversity/NMDS/C_nmds_ellipse.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+pdf(file = "Results/Carbon/Beta diversity/NMDS/C_nmds_label.pdf",width = 7.5,height = 5.4)
+result[[5]]
+dev.off()
+```
+
+#N cycle#
+##提取与N cycle有关的子数据##
+```{r}
+#与N cycle有关的KO号
+N <- c("K00370","K00371","K00374","K02567","K02568","K00362","K00363","K03385",
+       "K15876","K00367","K00372","K00366","K00368","K15864","K04561","K02305",
+       "K00376","K02588","K02586","K02591","K10944","K10945","K10946","K10535",
+       "K05601","K20932","K20933","K20934","K20935","K01915","K00265","K00266",
+       "K00264","K00284","K00260","K15371","K00261","K00262","K01455","K01501",
+       "K01725","K00926","K00549","K02575","K15576","K15577","K15578","K15579")
+#提取N cycle有关的KO丰度信息表
+N.ko <- ko[rownames(ko) %in% N,]
+write.table(N.ko,file = "Results/Nitrogen/Gene/Abundance/N_cycle_ko_abun.txt",sep = "\t")
+#按照18个氮循环过程合并KO丰度信息表
+N.abundance <- Ncyc.abundance(ko)
+write.table(N.abundance,file = "Results/Nitrogen/Gene/Abundance/N_cycle_gene_abun.txt",
+            sep = "\t",row.names = FALSE)
+```
+
+##按样品分组绘制氮循环丰度热图和差异性检验##
+```{r}
+dir.create("Results/Nitrogen/Gene/Heatmap")
+result <- abun.heatmap.g(N.abundance,group,Group_numb)
+pdf(file = "Results/Nitrogen/Gene/Heatmap/N_cycle_gene_abun_group.pdf",
+    width = 3.8 + 0.6*Group_numb,height = 4)
+result[[2]]
+dev.off()
+write.table(result[[1]],"Results/Nitrogen/Gene/Heatmap/Diff_N_gene_test.txt",sep = "\t",
+            row.names = FALSE)
+```
+
+##氮循环差异基因分析和可视化##
+```{r}
+dir.create("Results/Nitrogen/Gene/Cycle image")
+result <- fold.change(N.abundance,group)
+write.table(result[[1]],"Results/Nitrogen/Gene/Cycle image/Gene_fold_change.txt",sep = "\t",
+            row.names = FALSE)
+pdf(file = "Results/Nitrogen/Gene/Cycle image/Gene_fold_change.pdf",
+    width = 0.6*Group_numb + 3.8,height = 4.5)
+result[[3]]
+dev.off()
+```
+
+##氮循环模式图可视化##
+```{r}
+#提取18个氮循环类别的热图子集
+NU.NO3 <- result[[2]] + ylim("Nitrate uptake")
+NU.NO2 <- result[[2]] + ylim("Nitrite uptake")
+NU.NH4 <- result[[2]] + ylim("Ammonia uptake")
+NM.ON.NH4 <- result[[2]] + ylim("Nitrogen mineralization, organ-N to ammonia")
+Nitrification.NH4.NH2OH <- result[[2]] + ylim("Nitrification, ammonia to hydroxylamine")
+Nitrification.NH2OH.NO2 <- result[[2]] + ylim("Nitrification, hydroxylamine to nitrite")
+Nitrification.NH2OH.NH4 <- result[[2]] + ylim("Nitrification, hydroxylamine to ammonia")
+NF.N2.NH4 <- result[[2]] + ylim("Nitrogen fixation, nitrogen to ammonia")
+NA.NH4.ON <- result[[2]] + ylim("Nitrogen assimilation, ammonia to organ-N")
+DNR.NO3.NO2 <- result[[2]] + ylim("Dissimilatory nitrate reduction, nitrate to nitrite")
+DNR.NO2.NH4 <- result[[2]] + ylim("Dissimilatory nitrate reduction, nitrite to ammonia")
+Denitrification.NO2.NO <- result[[2]] + ylim("Denitrification, nitrite to nitric oxide")
+Denitrification.NO.N2O <- result[[2]] + ylim("Denitrification, nitric oxide to nitrous oxide")
+Denitrification.N2O.N2 <- result[[2]] + ylim("Denitrification, nitrous oxide to nitrogen")
+ANR.NO3.NO2 <- result[[2]] + ylim("Assimilatory nitrate reduction, nitrate to nitrite")
+ANR.NO2.NH4 <- result[[2]] + ylim("Assimilatory nitrate reduction, nitrite to ammonia")
+Anammox.NH4.N2H4 <- result[[2]] + ylim("Anammox, ammonia to hydrazine")
+Anammox.N2H4.N2 <- result[[2]] + ylim("Anammox, hydrazine to nitrogen")
+
+#绘制氮循环模式图
+N.img <- system.file("data", "Ncyc.pdf", package = "CNPS.cycle")
+pdf("Results/Nitrogen/Gene/Cycle image/N_cyc_fold_change.pdf",width = 13,height = 7)
+gg <- ggplot()
+ggbackground(gg,N.img)
+if (rowSums(N.abundance[18,2:ncol(N.abundance)]) > 0) {
+  print(NU.NO3,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                             x = 0.693,y = 0.06))
+}
+if (rowSums(N.abundance[17,2:ncol(N.abundance)]) > 0) {
+  print(NU.NO2,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                             x = 0.763,y = 0.28))
+}
+if (rowSums(N.abundance[16,2:ncol(N.abundance)]) > 0) {
+  print(NU.NH4,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                             x = 0.753,y = 0.742))
+}
+if (rowSums(N.abundance[15,2:ncol(N.abundance)]) > 0) {
+  print(NM.ON.NH4,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                x = 0.753,y = 0.87))
+}
+if (rowSums(N.abundance[14,2:ncol(N.abundance)]) > 0) {
+  print(NA.NH4.ON,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                x = 0.843,y = 0.64))
+}
+if (rowSums(N.abundance[8,2:ncol(N.abundance)]) > 0) {
+  print(NF.N2.NH4,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                x = 0.583,y = 0.9))
+}
+if (rowSums(N.abundance[9,2:ncol(N.abundance)]) > 0) {
+  print(Nitrification.NH4.NH2OH,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                              x = 0.65,y = 0.691))
+}
+if (rowSums(N.abundance[11,2:ncol(N.abundance)]) > 0) {
+  print(Nitrification.NH2OH.NH4,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                              x = 0.647,y = 0.59))
+}
+if (rowSums(N.abundance[10,2:ncol(N.abundance)]) > 0) {
+  print(Nitrification.NH2OH.NO2,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                              x = 0.648,y = 0.347))
+}
+if (rowSums(N.abundance[4,2:ncol(N.abundance)]) > 0) {
+  print(ANR.NO2.NH4,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                  x = 0.573,y = 0.397))
+}
+if (rowSums(N.abundance[3,2:ncol(N.abundance)]) > 0) {
+  print(ANR.NO3.NO2,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                  x = 0.583,y = 0.12))
+}
+if (rowSums(N.abundance[1,2:ncol(N.abundance)]) > 0) {
+  print(DNR.NO3.NO2,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                  x = 0.383,y = 0.085))
+}
+if (rowSums(N.abundance[2,2:ncol(N.abundance)]) > 0) {
+  print(DNR.NO2.NH4,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                  x = 0.33,y = 0.2))
+}
+if (rowSums(N.abundance[5,2:ncol(N.abundance)]) > 0) {
+  print(Denitrification.NO2.NO,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                             x = 0.165,y = 0.3))
+}
+if (rowSums(N.abundance[6,2:ncol(N.abundance)]) > 0) {
+  print(Denitrification.NO.N2O,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                             x = 0.145,y = 0.55))
+}
+if (rowSums(N.abundance[7,2:ncol(N.abundance)]) > 0) {
+  print(Denitrification.N2O.N2,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                             x = 0.183,y = 0.84))
+}
+if (rowSums(N.abundance[12,2:ncol(N.abundance)]) > 0) {
+  print(Anammox.NH4.N2H4,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                       x = 0.423,y = 0.55)) 
+}
+if (rowSums(N.abundance[13,2:ncol(N.abundance)]) > 0) {
+  print(Anammox.N2H4.N2,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                      x = 0.438,y = 0.76)) 
+}
+dev.off()
+```
+
+##氮循环基因宿主微生物的相对丰度统计##
+```{r}
+#检查输入数据中是否存在来自预定义类别的氮循环基因 ID
+#返回一个二进制向量，指示每个类别存在 (1) 或不存在 (0)
+Ncyc.h <- Ncyc.host(Gene)
+
+dir.create("Results/Nitrogen/Host_relative_Group")
+
+#Dissimilatory nitrate reduction, nitrate to nitrite宿主统计
+if (rowSums(N.abundance[1,2:ncol(N.abundance)]) > 0 & Ncyc.h[1] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2")
+  DNR.NO3.NO2 <- DNR.NO3.NO2(Gene,tax,abundance,group)
+  write.csv(DNR.NO3.NO2[[1]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_phylum.csv")
+  write.csv(DNR.NO3.NO2[[2]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_class.csv")
+  write.csv(DNR.NO3.NO2[[3]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_order.csv")
+  write.csv(DNR.NO3.NO2[[4]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_family.csv")
+  write.csv(DNR.NO3.NO2[[5]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_genus.csv")
+  write.csv(DNR.NO3.NO2[[6]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_species.csv")
+}
+
+#Dissimilatory nitrate reduction, nitrite to ammonia宿主统计
+if (rowSums(N.abundance[2,2:ncol(N.abundance)]) > 0 & Ncyc.h[2] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4")
+  DNR.NO2.NH4 <- DNR.NO2.NH4(Gene,tax,abundance,group)
+  write.csv(DNR.NO2.NH4[[1]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_phylum.csv")
+  write.csv(DNR.NO2.NH4[[2]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_class.csv")
+  write.csv(DNR.NO2.NH4[[3]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_order.csv")
+  write.csv(DNR.NO2.NH4[[4]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_family.csv")
+  write.csv(DNR.NO2.NH4[[5]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_genus.csv")
+  write.csv(DNR.NO2.NH4[[6]],file = "Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_species.csv")
+}
+
+#Assimilatory nitrate reduction, nitrate to nitrite宿主统计
+#if (rowSums(N.abundance[3,2:ncol(N.abundance)]) > 0 & Ncyc.h[3] == 1) {
+#  dir.create("Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2")
+#  ANR.NO3.NO2 <- ANR.NO3.NO2(Gene,tax,abundance,group)
+#  write.csv(ANR.NO3.NO2[[1]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_phylum.csv")
+#  write.csv(ANR.NO3.NO2[[2]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_class.csv")
+#  write.csv(ANR.NO3.NO2[[3]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_order.csv")
+#  write.csv(ANR.NO3.NO2[[4]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_family.csv")
+#  write.csv(ANR.NO3.NO2[[5]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_genus.csv")
+#  write.csv(ANR.NO3.NO2[[6]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_species.csv")
+#}
+
+#Assimilatory nitrate reduction, nitrite to ammonia宿主统计
+#if (rowSums(N.abundance[4,2:ncol(N.abundance)]) > 0 & Ncyc.h[4] == 1) {
+#  dir.create("Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4")
+#  ANR.NO2.NH4 <- ANR.NO2.NH4(Gene,tax,abundance,group)
+#  write.csv(ANR.NO2.NH4[[1]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_phylum.csv")
+#  write.csv(ANR.NO2.NH4[[2]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_class.csv")
+#  write.csv(ANR.NO2.NH4[[3]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_order.csv")
+#  write.csv(ANR.NO2.NH4[[4]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_family.csv")
+#  write.csv(ANR.NO2.NH4[[5]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_genus.csv")
+#  write.csv(ANR.NO2.NH4[[6]],file = "Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_species.csv")
+#}
+
+#Denitrification, nitrite to nitric oxide宿主统计
+if (rowSums(N.abundance[5,2:ncol(N.abundance)]) > 0 & Ncyc.h[5] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO")
+  Denitrification.NO2.NO <- Denitrification.NO2.NO(Gene,tax,abundance,group)
+  write.csv(Denitrification.NO2.NO[[1]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_phylum.csv")
+  write.csv(Denitrification.NO2.NO[[2]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_class.csv")
+  write.csv(Denitrification.NO2.NO[[3]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_order.csv")
+  write.csv(Denitrification.NO2.NO[[4]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_family.csv")
+  write.csv(Denitrification.NO2.NO[[5]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_genus.csv")
+  write.csv(Denitrification.NO2.NO[[6]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_species.csv")
+}
+
+#Denitrification, nitric oxide to nitrous oxide宿主统计
+if (rowSums(N.abundance[6,2:ncol(N.abundance)]) > 0 & Ncyc.h[6] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O")
+  Denitrification.NO.N2O <- Denitrification.NO.N2O(Gene,tax,abundance,group)
+  write.csv(Denitrification.NO.N2O[[1]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_phylum.csv")
+  write.csv(Denitrification.NO.N2O[[2]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_class.csv")
+  write.csv(Denitrification.NO.N2O[[3]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_order.csv")
+  write.csv(Denitrification.NO.N2O[[4]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_family.csv")
+  write.csv(Denitrification.NO.N2O[[5]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_genus.csv")
+  write.csv(Denitrification.NO.N2O[[6]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_species.csv")
+}
+
+#Denitrification, nitrous oxide to nitrogen宿主统计
+if (rowSums(N.abundance[7,2:ncol(N.abundance)]) > 0 & Ncyc.h[7] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2")
+  Denitrification.N2O.N2 <- Denitrification.N2O.N2(Gene,tax,abundance,group)
+  write.csv(Denitrification.N2O.N2[[1]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_phylum.csv")
+  write.csv(Denitrification.N2O.N2[[2]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_class.csv")
+  write.csv(Denitrification.N2O.N2[[3]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_order.csv")
+  write.csv(Denitrification.N2O.N2[[4]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_family.csv")
+  write.csv(Denitrification.N2O.N2[[5]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_genus.csv")
+  write.csv(Denitrification.N2O.N2[[6]],file = "Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_species.csv")
+}
+
+#Nitrogen fixation, nitrogen to ammonia宿主统计
+if (rowSums(N.abundance[8,2:ncol(N.abundance)]) > 0 & Ncyc.h[8] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/NF.N2.NH4")
+  NF.N2.NH4 <- NF.N2.NH4(Gene,tax,abundance,group)
+  write.csv(NF.N2.NH4[[1]],file = "Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_phylum.csv")
+  write.csv(NF.N2.NH4[[2]],file = "Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_class.csv")
+  write.csv(NF.N2.NH4[[3]],file = "Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_order.csv")
+  write.csv(NF.N2.NH4[[4]],file = "Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_family.csv")
+  write.csv(NF.N2.NH4[[5]],file = "Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_genus.csv")
+  write.csv(NF.N2.NH4[[6]],file = "Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_species.csv")
+}
+
+#Nitrification, hydroxylamine to ammonia宿主统计
+if (rowSums(N.abundance[11,2:ncol(N.abundance)]) > 0 & Ncyc.h[11] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4")
+  Nitrification.NH2OH.NH4 <- Nitrification.NH2OH.NH4(Gene,tax,abundance,group)
+  write.csv(Nitrification.NH2OH.NH4[[1]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_phylum.csv")
+  write.csv(Nitrification.NH2OH.NH4[[2]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_class.csv")
+  write.csv(Nitrification.NH2OH.NH4[[3]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_order.csv")
+  write.csv(Nitrification.NH2OH.NH4[[4]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_family.csv")
+  write.csv(Nitrification.NH2OH.NH4[[5]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_genus.csv")
+  write.csv(Nitrification.NH2OH.NH4[[6]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_species.csv")
+}
+
+#Nitrification, ammonia to hydroxylamine宿主统计
+#if (rowSums(N.abundance[9,2:ncol(N.abundance)]) > 0 & Ncyc.h[9] == 1) {
+#  dir.create("Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH")
+#  Nitrification.NH4.NH2OH <- Nitrification.NH4.NH2OH(Gene,tax,abundance,group)
+#  write.csv(Nitrification.NH4.NH2OH[[1]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_phylum.csv")
+#  write.csv(Nitrification.NH4.NH2OH[[2]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_class.csv")
+#  write.csv(Nitrification.NH4.NH2OH[[3]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_order.csv")
+#  write.csv(Nitrification.NH4.NH2OH[[4]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_family.csv")
+#  write.csv(Nitrification.NH4.NH2OH[[5]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_genus.csv")
+#  write.csv(Nitrification.NH4.NH2OH[[6]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_species.csv")
+#}
+
+#Nitrification, hydroxylamine to nitrite宿主统计
+if (rowSums(N.abundance[10,2:ncol(N.abundance)]) > 0 & Ncyc.h[10] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2")
+  Nitrification.NH2OH.NO2 <- Nitrification.NH2OH.NO2(Gene,tax,abundance,group)
+  write.csv(Nitrification.NH2OH.NO2[[1]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_phylum.csv")
+  write.csv(Nitrification.NH2OH.NO2[[2]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_class.csv")
+  write.csv(Nitrification.NH2OH.NO2[[3]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_order.csv")
+  write.csv(Nitrification.NH2OH.NO2[[4]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_family.csv")
+  write.csv(Nitrification.NH2OH.NO2[[5]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_genus.csv")
+  write.csv(Nitrification.NH2OH.NO2[[6]],file = "Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_species.csv")
+}
+
+#Nitrogen assimilation, ammonia to organ-N宿主统计
+if (rowSums(N.abundance[14,2:ncol(N.abundance)]) > 0 & Ncyc.h[14] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/NA.NH4.ON")
+  NA.NH4.ON <- NA.NH4.ON(Gene,tax,abundance,group)
+  write.csv(NA.NH4.ON[[1]],file = "Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_phylum.csv")
+  write.csv(NA.NH4.ON[[2]],file = "Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_class.csv")
+  write.csv(NA.NH4.ON[[3]],file = "Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_order.csv")
+  write.csv(NA.NH4.ON[[4]],file = "Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_family.csv")
+  write.csv(NA.NH4.ON[[5]],file = "Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_genus.csv")
+  write.csv(NA.NH4.ON[[6]],file = "Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_species.csv")
+}
+
+#Nitrogen mineralization, organ-N to ammonia宿主统计
+if (rowSums(N.abundance[15,2:ncol(N.abundance)]) > 0 & Ncyc.h[15] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/NM.ON.NH4")
+  NM.ON.NH4 <- NM.ON.NH4(Gene,tax,abundance,group)
+  write.csv(NM.ON.NH4[[1]],file = "Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_phylum.csv")
+  write.csv(NM.ON.NH4[[2]],file = "Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_class.csv")
+  write.csv(NM.ON.NH4[[3]],file = "Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_order.csv")
+  write.csv(NM.ON.NH4[[4]],file = "Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_family.csv")
+  write.csv(NM.ON.NH4[[5]],file = "Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_genus.csv")
+  write.csv(NM.ON.NH4[[6]],file = "Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_species.csv")
+}
+
+#Nitrate uptake宿主统计
+if (rowSums(N.abundance[18,2:ncol(N.abundance)]) > 0 & Ncyc.h[18] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/NU.NO3")
+  NU.NO3 <- NU.NO3(Gene,tax,abundance,group)
+  write.csv(NU.NO3[[1]],file = "Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_phylum.csv")
+  write.csv(NU.NO3[[2]],file = "Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_class.csv")
+  write.csv(NU.NO3[[3]],file = "Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_order.csv")
+  write.csv(NU.NO3[[4]],file = "Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_family.csv")
+  write.csv(NU.NO3[[5]],file = "Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_genus.csv")
+  write.csv(NU.NO3[[6]],file = "Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_species.csv")
+}
+
+#Nitrite uptake宿主统计
+if (rowSums(N.abundance[17,2:ncol(N.abundance)]) > 0 & Ncyc.h[17] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/NU.NO2")
+  NU.NO2 <- NU.NO2(Gene,tax,abundance,group)
+  write.csv(NU.NO2[[1]],file = "Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_phylum.csv")
+  write.csv(NU.NO2[[2]],file = "Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_class.csv")
+  write.csv(NU.NO2[[3]],file = "Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_order.csv")
+  write.csv(NU.NO2[[4]],file = "Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_family.csv")
+  write.csv(NU.NO2[[5]],file = "Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_genus.csv")
+  write.csv(NU.NO2[[6]],file = "Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_species.csv")
+}
+
+#Ammonia uptake宿主统计
+if (rowSums(N.abundance[16,2:ncol(N.abundance)]) > 0 & Ncyc.h[16] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/NU.NH4")
+  NU.NH4 <- NU.NH4(Gene,tax,abundance,group)
+  write.csv(NU.NH4[[1]],file = "Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_phylum.csv")
+  write.csv(NU.NH4[[2]],file = "Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_class.csv")
+  write.csv(NU.NH4[[3]],file = "Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_order.csv")
+  write.csv(NU.NH4[[4]],file = "Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_family.csv")
+  write.csv(NU.NH4[[5]],file = "Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_genus.csv")
+  write.csv(NU.NH4[[6]],file = "Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_species.csv")
+}
+
+#Anammox, ammonia to hydrazine宿主统计
+if (rowSums(N.abundance[12,2:ncol(N.abundance)]) > 0 & Ncyc.h[12] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4")
+  Anammox.NH4.N2H4 <- Anammox.NH4.N2H4(Gene,tax,abundance,group)
+  write.csv(Anammox.NH4.N2H4[[1]],file = "Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_phylum.csv")
+  write.csv(Anammox.NH4.N2H4[[2]],file = "Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_class.csv")
+  write.csv(Anammox.NH4.N2H4[[3]],file = "Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_order.csv")
+  write.csv(Anammox.NH4.N2H4[[4]],file = "Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_family.csv")
+  write.csv(Anammox.NH4.N2H4[[5]],file = "Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_genus.csv")
+  write.csv(Anammox.NH4.N2H4[[6]],file = "Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_species.csv")
+}
+
+#Anammox, hydrazine to nitrogen宿主统计
+if (rowSums(N.abundance[13,2:ncol(N.abundance)]) > 0 & Ncyc.h[13] == 1) {
+  dir.create("Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2")
+  Anammox.N2H4.N2 <- Anammox.N2H4.N2(Gene,tax,abundance,group)
+  write.csv(Anammox.N2H4.N2[[1]],file = "Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_phylum.csv")
+  write.csv(Anammox.N2H4.N2[[2]],file = "Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_class.csv")
+  write.csv(Anammox.N2H4.N2[[3]],file = "Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_order.csv")
+  write.csv(Anammox.N2H4.N2[[4]],file = "Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_family.csv")
+  write.csv(Anammox.N2H4.N2[[5]],file = "Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_genus.csv")
+  write.csv(Anammox.N2H4.N2[[6]],file = "Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_species.csv")
+}
+```
+
+##氮循环宿主统计结果的可视化##
+```{r}
+#DNR.NO3.NO2
+if (rowSums(N.abundance[1,2:ncol(N.abundance)]) > 0 & Ncyc.h[1] == 1) {
+  title <- expression(paste("Dissimilatory nitrate reduction (NO"["3"]^"-"," => NO"["2"]^"-",")"))
+  aa <- ifelse(nrow(DNR.NO3.NO2[[1]]) > 5,
+               max(str_length(rownames(DNR.NO3.NO2[[1]])[1:5])),
+               max(str_length(rownames(DNR.NO3.NO2[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO3.NO2[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO3.NO2[[2]]) > 5,
+               max(str_length(rownames(DNR.NO3.NO2[[2]])[1:5])),
+               max(str_length(rownames(DNR.NO3.NO2[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO3.NO2[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO3.NO2[[3]]) > 5,
+               max(str_length(rownames(DNR.NO3.NO2[[3]])[1:5])),
+               max(str_length(rownames(DNR.NO3.NO2[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO3.NO2[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO3.NO2[[4]]) > 5,
+               max(str_length(rownames(DNR.NO3.NO2[[4]])[1:5])),
+               max(str_length(rownames(DNR.NO3.NO2[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO3.NO2[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO3.NO2[[5]]) > 5,
+               max(str_length(rownames(DNR.NO3.NO2[[5]])[1:5])),
+               max(str_length(rownames(DNR.NO3.NO2[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO3.NO2[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO3.NO2[[6]]) > 5,
+               max(str_length(rownames(DNR.NO3.NO2[[6]])[1:5])),
+               max(str_length(rownames(DNR.NO3.NO2[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO3.NO2/DNR.NO3.NO2_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO3.NO2[[6]],title)
+  dev.off()
+}
+
+#DNR.NO2.NH4
+if (rowSums(N.abundance[2,2:ncol(N.abundance)]) > 0 & Ncyc.h[2] == 1) {
+  title <- expression(paste("Dissimilatory nitrate reduction (NO"["2"]^"-"," => NH"["4"]^"+",")"))
+  aa <- ifelse(nrow(DNR.NO2.NH4[[1]]) > 5,
+               max(str_length(rownames(DNR.NO2.NH4[[1]])[1:5])),
+               max(str_length(rownames(DNR.NO2.NH4[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO2.NH4[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO2.NH4[[2]]) > 5,
+               max(str_length(rownames(DNR.NO2.NH4[[2]])[1:5])),
+               max(str_length(rownames(DNR.NO2.NH4[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO2.NH4[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO2.NH4[[3]]) > 5,
+               max(str_length(rownames(DNR.NO2.NH4[[3]])[1:5])),
+               max(str_length(rownames(DNR.NO2.NH4[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO2.NH4[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO2.NH4[[4]]) > 5,
+               max(str_length(rownames(DNR.NO2.NH4[[4]])[1:5])),
+               max(str_length(rownames(DNR.NO2.NH4[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO2.NH4[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO2.NH4[[5]]) > 5,
+               max(str_length(rownames(DNR.NO2.NH4[[5]])[1:5])),
+               max(str_length(rownames(DNR.NO2.NH4[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO2.NH4[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(DNR.NO2.NH4[[6]]) > 5,
+               max(str_length(rownames(DNR.NO2.NH4[[6]])[1:5])),
+               max(str_length(rownames(DNR.NO2.NH4[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/DNR.NO2.NH4/DNR.NO2.NH4_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DNR.NO2.NH4[[6]],title)
+  dev.off()
+}
+
+#Anammox.N2H4.N2
+if (rowSums(N.abundance[13,2:ncol(N.abundance)]) > 0 & Ncyc.h[13] == 1) {
+  title <- expression(paste("Anammox (N"["2"],"H"["4"]," => N"["2"],")"))
+  aa <- ifelse(nrow(Anammox.N2H4.N2[[1]]) > 5,
+               max(str_length(rownames(Anammox.N2H4.N2[[1]])[1:5])),
+               max(str_length(rownames(Anammox.N2H4.N2[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.N2H4.N2[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.N2H4.N2[[2]]) > 5,
+               max(str_length(rownames(Anammox.N2H4.N2[[2]])[1:5])),
+               max(str_length(rownames(Anammox.N2H4.N2[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.N2H4.N2[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.N2H4.N2[[3]]) > 5,
+               max(str_length(rownames(Anammox.N2H4.N2[[3]])[1:5])),
+               max(str_length(rownames(Anammox.N2H4.N2[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.N2H4.N2[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.N2H4.N2[[4]]) > 5,
+               max(str_length(rownames(Anammox.N2H4.N2[[4]])[1:5])),
+               max(str_length(rownames(Anammox.N2H4.N2[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.N2H4.N2[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.N2H4.N2[[5]]) > 5,
+               max(str_length(rownames(Anammox.N2H4.N2[[5]])[1:5])),
+               max(str_length(rownames(Anammox.N2H4.N2[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.N2H4.N2[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.N2H4.N2[[6]]) > 5,
+               max(str_length(rownames(Anammox.N2H4.N2[[6]])[1:5])),
+               max(str_length(rownames(Anammox.N2H4.N2[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.N2H4.N2/Anammox.N2H4.N2_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.N2H4.N2[[6]],title)
+  dev.off()
+}
+
+#Anammox.NH4.N2H4
+if (rowSums(N.abundance[12,2:ncol(N.abundance)]) > 0 & Ncyc.h[12] == 1) {
+  title <- expression(paste("Anammox (NH"["4"]^"+"," => N"["2"],"H"["4"],")"))
+  aa <- ifelse(nrow(Anammox.NH4.N2H4[[1]]) > 5,
+               max(str_length(rownames(Anammox.NH4.N2H4[[1]])[1:5])),
+               max(str_length(rownames(Anammox.NH4.N2H4[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.NH4.N2H4[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.NH4.N2H4[[2]]) > 5,
+               max(str_length(rownames(Anammox.NH4.N2H4[[2]])[1:5])),
+               max(str_length(rownames(Anammox.NH4.N2H4[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.NH4.N2H4[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.NH4.N2H4[[3]]) > 5,
+               max(str_length(rownames(Anammox.NH4.N2H4[[3]])[1:5])),
+               max(str_length(rownames(Anammox.NH4.N2H4[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.NH4.N2H4[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.NH4.N2H4[[4]]) > 5,
+               max(str_length(rownames(Anammox.NH4.N2H4[[4]])[1:5])),
+               max(str_length(rownames(Anammox.NH4.N2H4[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.NH4.N2H4[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.NH4.N2H4[[5]]) > 5,
+               max(str_length(rownames(Anammox.NH4.N2H4[[5]])[1:5])),
+               max(str_length(rownames(Anammox.NH4.N2H4[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.NH4.N2H4[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(Anammox.NH4.N2H4[[6]]) > 5,
+               max(str_length(rownames(Anammox.NH4.N2H4[[6]])[1:5])),
+               max(str_length(rownames(Anammox.NH4.N2H4[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Anammox.NH4.N2H4/Anammox.NH4.N2H4_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Anammox.NH4.N2H4[[6]],title)
+  dev.off()
+}
+
+#ANR.NO2.NH4
+#if (rowSums(N.abundance[4,2:ncol(N.abundance)]) > 0 & Ncyc.h[4] == 1) {
+#  title <- expression(paste("Assimilatory nitrate reduction (NO"["2"]^"-"," => NH"["4"]^"+",")"))
+#  aa <- ifelse(nrow(ANR.NO2.NH4[[1]]) > 5,
+#               max(str_length(rownames(ANR.NO2.NH4[[1]])[1:5])),
+#               max(str_length(rownames(ANR.NO2.NH4[[1]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_phylum.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO2.NH4[[1]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO2.NH4[[2]]) > 5,
+#               max(str_length(rownames(ANR.NO2.NH4[[2]])[1:5])),
+#               max(str_length(rownames(ANR.NO2.NH4[[2]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_class.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO2.NH4[[2]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO2.NH4[[3]]) > 5,
+#               max(str_length(rownames(ANR.NO2.NH4[[3]])[1:5])),
+#               max(str_length(rownames(ANR.NO2.NH4[[3]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_order.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO2.NH4[[3]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO2.NH4[[4]]) > 5,
+#               max(str_length(rownames(ANR.NO2.NH4[[4]])[1:5])),
+#               max(str_length(rownames(ANR.NO2.NH4[[4]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_family.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO2.NH4[[4]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO2.NH4[[5]]) > 5,
+#               max(str_length(rownames(ANR.NO2.NH4[[5]])[1:5])),
+#               max(str_length(rownames(ANR.NO2.NH4[[5]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_genus.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO2.NH4[[5]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO2.NH4[[6]]) > 5,
+#               max(str_length(rownames(ANR.NO2.NH4[[6]])[1:5])),
+#               max(str_length(rownames(ANR.NO2.NH4[[6]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO2.NH4/ANR.NO2.NH4_species.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO2.NH4[[6]],title)
+#  dev.off()
+#}
+
+#ANR.NO3.NO2
+#if (rowSums(N.abundance[3,2:ncol(N.abundance)]) > 0 & Ncyc.h[3] == 1) {
+#  title <- expression(paste("Assimilatory nitrate reduction (NO"["3"]^"-"," => NO"["2"]^"-",")"))
+#  aa <- ifelse(nrow(ANR.NO3.NO2[[1]]) > 5,
+#             max(str_length(rownames(ANR.NO3.NO2[[1]])[1:5])),
+#             max(str_length(rownames(ANR.NO3.NO2[[1]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_phylum.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO3.NO2[[1]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO3.NO2[[2]]) > 5,
+#             max(str_length(rownames(ANR.NO3.NO2[[2]])[1:5])),
+#             max(str_length(rownames(ANR.NO3.NO2[[2]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_class.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO3.NO2[[2]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO3.NO2[[3]]) > 5,
+#               max(str_length(rownames(ANR.NO3.NO2[[3]])[1:5])),
+#             max(str_length(rownames(ANR.NO3.NO2[[3]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_order.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO3.NO2[[3]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO3.NO2[[4]]) > 5,
+#               max(str_length(rownames(ANR.NO3.NO2[[4]])[1:5])),
+#               max(str_length(rownames(ANR.NO3.NO2[[4]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_family.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO3.NO2[[4]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO3.NO2[[5]]) > 5,
+#               max(str_length(rownames(ANR.NO3.NO2[[5]])[1:5])),
+#               max(str_length(rownames(ANR.NO3.NO2[[5]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_genus.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO3.NO2[[5]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(ANR.NO3.NO2[[6]]) > 5,
+#               max(str_length(rownames(ANR.NO3.NO2[[6]])[1:5])),
+#               max(str_length(rownames(ANR.NO3.NO2[[6]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/ANR.NO3.NO2/ANR.NO3.NO2_species.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(ANR.NO3.NO2[[6]],title)
+#  dev.off()
+#}
+
+#Denitrification.N2O.N2
+if (rowSums(N.abundance[7,2:ncol(N.abundance)]) > 0 & Ncyc.h[7] == 1) {
+  title <- expression(paste("Denitrification (N"["2"],"O => N"["2"],")"))
+  aa <- ifelse(nrow(Denitrification.N2O.N2[[1]]) > 5,
+               max(str_length(rownames(Denitrification.N2O.N2[[1]])[1:5])),
+               max(str_length(rownames(Denitrification.N2O.N2[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.N2O.N2[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.N2O.N2[[2]]) > 5,
+               max(str_length(rownames(Denitrification.N2O.N2[[2]])[1:5])),
+               max(str_length(rownames(Denitrification.N2O.N2[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.N2O.N2[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.N2O.N2[[3]]) > 5,
+               max(str_length(rownames(Denitrification.N2O.N2[[3]])[1:5])),
+               max(str_length(rownames(Denitrification.N2O.N2[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.N2O.N2[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.N2O.N2[[4]]) > 5,
+               max(str_length(rownames(Denitrification.N2O.N2[[4]])[1:5])),
+               max(str_length(rownames(Denitrification.N2O.N2[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.N2O.N2[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.N2O.N2[[5]]) > 5,
+               max(str_length(rownames(Denitrification.N2O.N2[[5]])[1:5])),
+               max(str_length(rownames(Denitrification.N2O.N2[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.N2O.N2[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.N2O.N2[[6]]) > 5,
+               max(str_length(rownames(Denitrification.N2O.N2[[6]])[1:5])),
+               max(str_length(rownames(Denitrification.N2O.N2[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.N2O.N2/Denitrification.N2O.N2_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.N2O.N2[[6]],title)
+  dev.off()
+}
+
+#Denitrification.NO.N2O
+if (rowSums(N.abundance[6,2:ncol(N.abundance)]) > 0 & Ncyc.h[6] == 1) {
+  title <- expression(paste("Denitrification (NO => N"["2"],"O)"))
+  aa <- ifelse(nrow(Denitrification.NO.N2O[[1]]) > 5,
+               max(str_length(rownames(Denitrification.NO.N2O[[1]])[1:5])),
+               max(str_length(rownames(Denitrification.NO.N2O[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO.N2O[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO.N2O[[2]]) > 5,
+               max(str_length(rownames(Denitrification.NO.N2O[[2]])[1:5])),
+               max(str_length(rownames(Denitrification.NO.N2O[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO.N2O[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO.N2O[[3]]) > 5,
+               max(str_length(rownames(Denitrification.NO.N2O[[3]])[1:5])),
+               max(str_length(rownames(Denitrification.NO.N2O[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO.N2O[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO.N2O[[4]]) > 5,
+               max(str_length(rownames(Denitrification.NO.N2O[[4]])[1:5])),
+               max(str_length(rownames(Denitrification.NO.N2O[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO.N2O[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO.N2O[[5]]) > 5,
+               max(str_length(rownames(Denitrification.NO.N2O[[5]])[1:5])),
+               max(str_length(rownames(Denitrification.NO.N2O[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO.N2O[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO.N2O[[6]]) > 5,
+               max(str_length(rownames(Denitrification.NO.N2O[[6]])[1:5])),
+               max(str_length(rownames(Denitrification.NO.N2O[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO.N2O/Denitrification.NO.N2O_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO.N2O[[6]],title)
+  dev.off()
+}
+
+#Denitrification.NO2.NO
+if (rowSums(N.abundance[5,2:ncol(N.abundance)]) > 0 & Ncyc.h[5] == 1) {
+  title <- expression(paste("Denitrification (NO"["2"]^"-"," => NO)"))
+  aa <- ifelse(nrow(Denitrification.NO2.NO[[1]]) > 5,
+               max(str_length(rownames(Denitrification.NO2.NO[[1]])[1:5])),
+               max(str_length(rownames(Denitrification.NO2.NO[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO2.NO[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO2.NO[[2]]) > 5,
+               max(str_length(rownames(Denitrification.NO2.NO[[2]])[1:5])),
+               max(str_length(rownames(Denitrification.NO2.NO[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO2.NO[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO2.NO[[3]]) > 5,
+               max(str_length(rownames(Denitrification.NO2.NO[[3]])[1:5])),
+               max(str_length(rownames(Denitrification.NO2.NO[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO2.NO[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO2.NO[[4]]) > 5,
+               max(str_length(rownames(Denitrification.NO2.NO[[4]])[1:5])),
+               max(str_length(rownames(Denitrification.NO2.NO[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO2.NO[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO2.NO[[5]]) > 5,
+               max(str_length(rownames(Denitrification.NO2.NO[[5]])[1:5])),
+               max(str_length(rownames(Denitrification.NO2.NO[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO2.NO[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(Denitrification.NO2.NO[[6]]) > 5,
+               max(str_length(rownames(Denitrification.NO2.NO[[6]])[1:5])),
+               max(str_length(rownames(Denitrification.NO2.NO[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Denitrification.NO2.NO/Denitrification.NO2.NO_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Denitrification.NO2.NO[[6]],title)
+  dev.off()
+}
+
+#NA.NH4.ON
+if (rowSums(N.abundance[14,2:ncol(N.abundance)]) > 0 & Ncyc.h[14] == 1) {
+  title <- expression(paste("Nitrogen assimilation (NH"["4"]^"+"," => Org-N)"))
+  aa <- ifelse(nrow(NA.NH4.ON[[1]]) > 5,
+               max(str_length(rownames(NA.NH4.ON[[1]])[1:5])),
+               max(str_length(rownames(NA.NH4.ON[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NA.NH4.ON[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(NA.NH4.ON[[2]]) > 5,
+               max(str_length(rownames(NA.NH4.ON[[2]])[1:5])),
+               max(str_length(rownames(NA.NH4.ON[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NA.NH4.ON[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(NA.NH4.ON[[3]]) > 5,
+               max(str_length(rownames(NA.NH4.ON[[3]])[1:5])),
+               max(str_length(rownames(NA.NH4.ON[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NA.NH4.ON[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(NA.NH4.ON[[4]]) > 5,
+               max(str_length(rownames(NA.NH4.ON[[4]])[1:5])),
+               max(str_length(rownames(NA.NH4.ON[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NA.NH4.ON[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(NA.NH4.ON[[5]]) > 5,
+               max(str_length(rownames(NA.NH4.ON[[5]])[1:5])),
+               max(str_length(rownames(NA.NH4.ON[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NA.NH4.ON[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(NA.NH4.ON[[6]]) > 5,
+               max(str_length(rownames(NA.NH4.ON[[6]])[1:5])),
+               max(str_length(rownames(NA.NH4.ON[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NA.NH4.ON/NA.NH4.ON_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NA.NH4.ON[[6]],title)
+  dev.off()
+}
+
+#NF.N2.NH4
+if (rowSums(N.abundance[8,2:ncol(N.abundance)]) > 0 & Ncyc.h[8] == 1) {
+  title <- expression(paste("Nitrogen fixtion (N"["2"]," => NH"["4"]^"+",")"))
+  aa <- ifelse(nrow(NF.N2.NH4[[1]]) > 5,
+               max(str_length(rownames(NF.N2.NH4[[1]])[1:5])),
+               max(str_length(rownames(NF.N2.NH4[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NF.N2.NH4[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(NF.N2.NH4[[2]]) > 5,
+               max(str_length(rownames(NF.N2.NH4[[2]])[1:5])),
+               max(str_length(rownames(NF.N2.NH4[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NF.N2.NH4[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(NF.N2.NH4[[3]]) > 5,
+               max(str_length(rownames(NF.N2.NH4[[3]])[1:5])),
+               max(str_length(rownames(NF.N2.NH4[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NF.N2.NH4[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(NF.N2.NH4[[4]]) > 5,
+               max(str_length(rownames(NF.N2.NH4[[4]])[1:5])),
+               max(str_length(rownames(NF.N2.NH4[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NF.N2.NH4[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(NF.N2.NH4[[5]]) > 5,
+               max(str_length(rownames(NF.N2.NH4[[5]])[1:5])),
+               max(str_length(rownames(NF.N2.NH4[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NF.N2.NH4[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(NF.N2.NH4[[6]]) > 5,
+               max(str_length(rownames(NF.N2.NH4[[6]])[1:5])),
+               max(str_length(rownames(NF.N2.NH4[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NF.N2.NH4/NF.N2.NH4_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NF.N2.NH4[[6]],title)
+  dev.off()
+}
+
+#Nitrification.NH2OH.NH4
+if (rowSums(N.abundance[11,2:ncol(N.abundance)]) > 0 & Ncyc.h[11] == 1) {
+  title <- expression(paste("Nitrification (NH"["2"],"OH => NH"["4"]^"+",")"))
+  aa <- ifelse(nrow(Nitrification.NH2OH.NH4[[1]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[1]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NH4[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NH4[[2]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[2]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NH4[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NH4[[3]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[3]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NH4[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NH4[[4]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[4]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NH4[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NH4[[5]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[5]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NH4[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NH4[[6]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[6]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NH4[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NH4/Nitrification.NH2OH.NH4_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NH4[[6]],title)
+  dev.off()
+}
+
+#Nitrification.NH2OH.NO2
+if (rowSums(N.abundance[10,2:ncol(N.abundance)]) > 0 & Ncyc.h[10] == 1) {
+  title <- expression(paste("Nitrification (NH"["2"],"OH => NO"["2"]^"-",")"))
+  aa <- ifelse(nrow(Nitrification.NH2OH.NO2[[1]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[1]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NO2[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NO2[[2]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[2]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NO2[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NO2[[3]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[3]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NO2[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NO2[[4]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[4]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NO2[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NO2[[5]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[5]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NO2[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(Nitrification.NH2OH.NO2[[6]]) > 5,
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[6]])[1:5])),
+               max(str_length(rownames(Nitrification.NH2OH.NO2[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH2OH.NO2/Nitrification.NH2OH.NO2_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(Nitrification.NH2OH.NO2[[6]],title)
+  dev.off()
+}
+
+#Nitrification.NH4.NH2OH
+#if (rowSums(N.abundance[9,2:ncol(N.abundance)]) > 0 & Ncyc.h[9] == 1) {
+#  title <- expression(paste("Nitrification (NH"["4"]^"+"," => NH"["2"],"OH)"))
+#  aa <- ifelse(nrow(Nitrification.NH4.NH2OH[[1]]) > 5,
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[1]])[1:5])),
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[1]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_phylum.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Nitrification.NH4.NH2OH[[1]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Nitrification.NH4.NH2OH[[2]]) > 5,
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[2]])[1:5])),
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[2]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_class.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Nitrification.NH4.NH2OH[[2]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Nitrification.NH4.NH2OH[[3]]) > 5,
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[3]])[1:5])),
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[3]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_order.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Nitrification.NH4.NH2OH[[3]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Nitrification.NH4.NH2OH[[4]]) > 5,
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[4]])[1:5])),
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[4]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_family.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Nitrification.NH4.NH2OH[[4]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Nitrification.NH4.NH2OH[[5]]) > 5,
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[5]])[1:5])),
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[5]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_genus.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Nitrification.NH4.NH2OH[[5]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(Nitrification.NH4.NH2OH[[6]]) > 5,
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[6]])[1:5])),
+               #max(str_length(rownames(Nitrification.NH4.NH2OH[[6]]))))
+#  pdf("Results/Nitrogen/Host_relative_Group/Nitrification.NH4.NH2OH/Nitrification.NH4.NH2OH_species.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(Nitrification.NH4.NH2OH[[6]],title)
+#  dev.off()
+#}
+
+#NM.ON.NH4
+if (rowSums(N.abundance[15,2:ncol(N.abundance)]) > 0 & Ncyc.h[15] == 1) {
+  title <- expression(paste("Nitrogen mineralization (Org-N"," => NH"["4"]^"+",")"))
+  aa <- ifelse(nrow(NM.ON.NH4[[1]]) > 5,
+               max(str_length(rownames(NM.ON.NH4[[1]])[1:5])),
+               max(str_length(rownames(NM.ON.NH4[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NM.ON.NH4[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(NM.ON.NH4[[2]]) > 5,
+               max(str_length(rownames(NM.ON.NH4[[2]])[1:5])),
+               max(str_length(rownames(NM.ON.NH4[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NM.ON.NH4[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(NM.ON.NH4[[3]]) > 5,
+               max(str_length(rownames(NM.ON.NH4[[3]])[1:5])),
+               max(str_length(rownames(NM.ON.NH4[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NM.ON.NH4[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(NM.ON.NH4[[4]]) > 5,
+               max(str_length(rownames(NM.ON.NH4[[4]])[1:5])),
+               max(str_length(rownames(NM.ON.NH4[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NM.ON.NH4[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(NM.ON.NH4[[5]]) > 5,
+               max(str_length(rownames(NM.ON.NH4[[5]])[1:5])),
+               max(str_length(rownames(NM.ON.NH4[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NM.ON.NH4[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(NM.ON.NH4[[6]]) > 5,
+               max(str_length(rownames(NM.ON.NH4[[6]])[1:5])),
+               max(str_length(rownames(NM.ON.NH4[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NM.ON.NH4/NM.ON.NH4_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NM.ON.NH4[[6]],title)
+  dev.off()
+}
+
+#NU.NH4
+if (rowSums(N.abundance[16,2:ncol(N.abundance)]) > 0 & Ncyc.h[16] == 1) {
+  title <- expression(paste("Nitrogen uptake (NH"["4"]^"+",")"))
+  aa <- ifelse(nrow(NU.NH4[[1]]) > 5,
+               max(str_length(rownames(NU.NH4[[1]])[1:5])),
+               max(str_length(rownames(NU.NH4[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NH4[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NH4[[2]]) > 5,
+               max(str_length(rownames(NU.NH4[[2]])[1:5])),
+               max(str_length(rownames(NU.NH4[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NH4[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NH4[[3]]) > 5,
+               max(str_length(rownames(NU.NH4[[3]])[1:5])),
+               max(str_length(rownames(NU.NH4[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NH4[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NH4[[4]]) > 5,
+               max(str_length(rownames(NU.NH4[[4]])[1:5])),
+               max(str_length(rownames(NU.NH4[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NH4[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NH4[[5]]) > 5,
+               max(str_length(rownames(NU.NH4[[5]])[1:5])),
+               max(str_length(rownames(NU.NH4[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NH4[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NH4[[6]]) > 5,
+               max(str_length(rownames(NU.NH4[[6]])[1:5])),
+               max(str_length(rownames(NU.NH4[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NH4/NU.NH4_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NH4[[6]],title)
+  dev.off()
+}
+
+#NU.NO2
+if (rowSums(N.abundance[17,2:ncol(N.abundance)]) > 0 & Ncyc.h[17] == 1) {
+  title <- expression(paste("Nitrogen uptake (NO"["2"]^"-",")"))
+  aa <- ifelse(nrow(NU.NO2[[1]]) > 5,
+               max(str_length(rownames(NU.NO2[[1]])[1:5])),
+               max(str_length(rownames(NU.NO2[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO2[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO2[[2]]) > 5,
+               max(str_length(rownames(NU.NO2[[2]])[1:5])),
+               max(str_length(rownames(NU.NO2[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO2[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO2[[3]]) > 5,
+               max(str_length(rownames(NU.NO2[[3]])[1:5])),
+               max(str_length(rownames(NU.NO2[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO2[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO2[[4]]) > 5,
+               max(str_length(rownames(NU.NO2[[4]])[1:5])),
+               max(str_length(rownames(NU.NO2[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO2[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO2[[5]]) > 5,
+               max(str_length(rownames(NU.NO2[[5]])[1:5])),
+               max(str_length(rownames(NU.NO2[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO2[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO2[[6]]) > 5,
+               max(str_length(rownames(NU.NO2[[6]])[1:5])),
+               max(str_length(rownames(NU.NO2[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO2/NU.NO2_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO2[[6]],title)
+  dev.off()
+}
+
+#NU.NO3
+if (rowSums(N.abundance[18,2:ncol(N.abundance)]) > 0 & Ncyc.h[18] == 1) {
+  title <- expression(paste("Nitrogen uptake (NO"["3"]^"-",")"))
+  aa <- ifelse(nrow(NU.NO3[[1]]) > 5,
+               max(str_length(rownames(NU.NO3[[1]])[1:5])),
+               max(str_length(rownames(NU.NO3[[1]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO3[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO3[[2]]) > 5,
+               max(str_length(rownames(NU.NO3[[2]])[1:5])),
+               max(str_length(rownames(NU.NO3[[2]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO3[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO3[[3]]) > 5,
+               max(str_length(rownames(NU.NO3[[3]])[1:5])),
+               max(str_length(rownames(NU.NO3[[3]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO3[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO3[[4]]) > 5,
+               max(str_length(rownames(NU.NO3[[4]])[1:5])),
+               max(str_length(rownames(NU.NO3[[4]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO3[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO3[[5]]) > 5,
+               max(str_length(rownames(NU.NO3[[5]])[1:5])),
+               max(str_length(rownames(NU.NO3[[5]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO3[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(NU.NO3[[6]]) > 5,
+               max(str_length(rownames(NU.NO3[[6]])[1:5])),
+               max(str_length(rownames(NU.NO3[[6]]))))
+  pdf("Results/Nitrogen/Host_relative_Group/NU.NO3/NU.NO3_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(NU.NO3[[6]],title)
+  dev.off()
+}
+
+#Legend
+df <- data.frame(A = c(0,0.1,0.2,0.3,0.4,0.5),
+                 B = c(0.5,0.6,0.7,0.8,0.9,1))
+df <- t(df)
+df1 <- data.frame(A = c("0%","10%","20%","30%","40%","50%"),
+                  B = c("50%","60%","70%","80%","90%","100%"))
+df1 <- t(df1)
+bk <- c(seq(0,1,by = 0.01))
+pheatmap(df,fontsize = 30,cluster_rows = FALSE,fontface = "bold",cluster_cols = FALSE,
+         cellwidth = 80,cellheight = 50,legend = FALSE,breaks = bk,show_rownames = FALSE,
+         color = colorRampPalette(c("white","Red"))(100),show_colnames = FALSE,
+         display_numbers = df1,number_color = "black",border_color = "black",
+         filename = "Results/Nitrogen/Host_relative_Group/Legend_relative_Group.pdf",width = 7,height = 2)
+```
+
+##氮循环β多样性分析及可视化##
+```{r}
+cbbPalette <- c("#B2182B","#56B4E9","#E69F00","#009E73","#F0E442","#0072B2",
+                "#D55E00","#CC79A7","#CC6666","#9999CC","#66CC99","#99999",
+                "#ADD1E5")
+
+dir.create("Results/Nitrogen/Beta diversity")
+dir.create("Results/Nitrogen/Beta diversity/Distance")
+dir.create("Results/Nitrogen/Beta diversity/PCA")
+dir.create("Results/Nitrogen/Beta diversity/PCoA")
+dir.create("Results/Nitrogen/Beta diversity/NMDS")
+
+result <- pcoa.arg(N.abundance[,2:ncol(N.abundance)],group)
+write.table(as.matrix(result[[1]]),"Results/Nitrogen/Beta diversity/Distance/distance_bray_curtis.txt",
+            sep = "\t")
+write.table(result[[2]],"Results/Nitrogen/Beta diversity/Distance/diff_test.txt",sep = "\t",row.names = FALSE)
+write.table(result[[3]],"Results/Nitrogen/Beta diversity/PCoA/N_pcoa.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Nitrogen/Beta diversity/PCoA/N_pcoa_group.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+pdf(file = "Results/Nitrogen/Beta diversity/PCoA/N_pcoa_ellipse.pdf",width = 7.5,height = 5.4)
+result[[5]]
+dev.off()
+pdf(file = "Results/Nitrogen/Beta diversity/PCoA/N_pcoa_label.pdf",width = 7.5,height = 5.4)
+result[[6]]
+dev.off()
+
+result <- pca.arg(N.abundance[,2:ncol(N.abundance)],group)
+write.table(result[[1]],"Results/Nitrogen/Beta diversity/PCA/N_pca.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Nitrogen/Beta diversity/PCA/N_pca_group.pdf",width = 7.5,height = 5.4)
+result[[2]]
+dev.off()
+pdf(file = "Results/Nitrogen/Beta diversity/PCA/N_pca_ellipse.pdf",width = 7.5,height = 5.4)
+result[[3]]
+dev.off()
+pdf(file = "Results/Nitrogen/Beta diversity/PCA/N_pca_label.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+
+result <- nmds.arg(N.abundance[,2:ncol(N.abundance)],group)
+write.table(result[[1]],"Results/Nitrogen/Beta diversity/NMDS/N_stress.txt",sep = "\t",row.names = FALSE)
+write.table(result[[2]],"Results/Nitrogen/Beta diversity/NMDS/N_nmds.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Nitrogen/Beta diversity/NMDS/N_nmds_group.pdf",width = 7.5,height = 5.4)
+result[[3]]
+dev.off()
+pdf(file = "Results/Nitrogen/Beta diversity/NMDS/N_nmds_ellipse.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+pdf(file = "Results/Nitrogen/Beta diversity/NMDS/N_nmds_label.pdf",width = 7.5,height = 5.4)
+result[[5]]
+dev.off()
+```
+
+#P cycle#
+##提取与P cycle有关的子数据##
+```{r}
+#与P cycle有关的KO号
+P <- c("K07636","K07657","K07658","K07768","K07776")
+#提取P cycle有关的KO丰度信息表
+P.ko <- ko[rownames(ko) %in% P,]
+write.table(P.ko,file = "Results/Phosphorus/Gene/Abundance/P_cycle_ko_abun.txt",sep = "\t")
+#按照2个磷循环过程合并KO丰度信息表
+P.abundance <- Pcyc.abundance(ko)
+write.table(P.abundance,file = "Results/Phosphorus/Gene/Abundance/P_cycle_gene_abun.txt",
+            sep = "\t",row.names = FALSE)
+```
+
+##按样品分组绘制磷循环丰度热图和差异性检验##
+```{r}
+dir.create("Results/Phosphorus/Gene/Heatmap")
+result <- abun.heatmap.g(P.abundance,group,Group_numb)
+pdf(file = "Results/Phosphorus/Gene/Heatmap/P_cycle_gene_abun_group.pdf",
+    width = 2.3 + 0.6*Group_numb,height = 3)
+result[[2]]
+dev.off()
+write.table(result[[1]],"Results/Phosphorus/Gene/Heatmap/Diff_P_gene_test.txt",sep = "\t",
+            row.names = FALSE)
+```
+
+##磷循环差异基因分析和可视化##
+```{r}
+dir.create("Results/Phosphorus/Gene/Cycle image")
+result <- fold.change(P.abundance,group)
+write.table(result[[1]],"Results/Phosphorus/Gene/Cycle image/Gene_fold_change.txt",sep = "\t",
+            row.names = FALSE)
+pdf(file = "Results/Phosphorus/Gene/Cycle image/Gene_fold_change.pdf",
+    width = 0.6*Group_numb + 2.3,height = 1.2)
+result[[3]]
+dev.off()
+```
+
+##磷循环模式图可视化##
+```{r}
+#提取2个磷循环类别的热图子集
+RB <- result[[2]] + ylim("PhoR-PhoB system")
+X3 <- result[[2]] + ylim("SenX3-RegX3 system")
+#绘制磷循环模式图
+P.img <- system.file("data", "Pcyc.pdf", package = "CNPS.cycle")
+pdf("Results/Phosphorus//Gene/Cycle image/P_cyc_fold_change.pdf",width = 13,height = 7)
+gg <- ggplot()
+ggbackground(gg,P.img)
+if (rowSums(P.abundance[1,2:ncol(P.abundance)]) > 0) {
+  print(RB,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                         x = 0.564,y = 0.725))
+}
+if (rowSums(P.abundance[2,2:ncol(P.abundance)]) > 0) {
+  print(X3,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                         x = 0.408,y = 0.54))
+}
+dev.off()
+```
+
+##磷循环基因宿主微生物的相对丰度统计##
+```{r}
+#检查输入数据中是否存在来自预定义类别的磷循环基因 ID
+#返回一个二进制向量，指示每个类别存在 (1) 或不存在 (0)
+Pcyc.h <- Pcyc.host(Gene)
+
+dir.create("Results/Phosphorus/Host_relative_Group")
+
+#PhoR-PhoB system宿主统计
+if (rowSums(P.abundance[1,2:ncol(P.abundance)]) > 0 & Pcyc.h[1] == 1) {
+  dir.create("Results/Phosphorus/Host_relative_Group/RB")
+  RB <- RB(Gene,tax,abundance,group)
+  write.csv(RB[[1]],file = "Results/Phosphorus/Host_relative_Group/RB/RB_phylum.csv")
+  write.csv(RB[[2]],file = "Results/Phosphorus/Host_relative_Group/RB/RB_class.csv")
+  write.csv(RB[[3]],file = "Results/Phosphorus/Host_relative_Group/RB/RB_order.csv")
+  write.csv(RB[[4]],file = "Results/Phosphorus/Host_relative_Group/RB/RB_family.csv")
+  write.csv(RB[[5]],file = "Results/Phosphorus/Host_relative_Group/RB/RB_genus.csv")
+  write.csv(RB[[6]],file = "Results/Phosphorus/Host_relative_Group/RB/RB_species.csv")
+}
+
+#SenX3-RegX3 system宿主统计
+if (rowSums(P.abundance[2,2:ncol(P.abundance)]) > 0 & Pcyc.h[2] == 1) {
+  dir.create("Results/Phosphorus/Host_relative_Group/X3")
+  X3 <- X3(Gene,tax,abundance,group)
+  write.csv(X3[[1]],file = "Results/Phosphorus/Host_relative_Group/X3/X3_phylum.csv")
+  write.csv(X3[[2]],file = "Results/Phosphorus/Host_relative_Group/X3/X3_class.csv")
+  write.csv(X3[[3]],file = "Results/Phosphorus/Host_relative_Group/X3/X3_order.csv")
+  write.csv(X3[[4]],file = "Results/Phosphorus/Host_relative_Group/X3/X3_family.csv")
+  write.csv(X3[[5]],file = "Results/Phosphorus/Host_relative_Group/X3/X3_genus.csv")
+  write.csv(X3[[6]],file = "Results/Phosphorus/Host_relative_Group/X3/X3_species.csv")
+}
+```
+
+##磷循环宿主统计结果的可视化##
+```{r}
+#PhoR-PhoB system
+if (rowSums(P.abundance[1,2:ncol(P.abundance)]) > 0 & Pcyc.h[1] == 1) {
+  title <- "PhoR-PhoB system"
+  aa <- ifelse(nrow(RB[[1]]) > 5,
+               max(str_length(rownames(RB[[1]])[1:5])),
+               max(str_length(rownames(RB[[1]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/RB/RB_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(RB[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(RB[[2]]) > 5,
+               max(str_length(rownames(RB[[2]])[1:5])),
+               max(str_length(rownames(RB[[2]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/RB/RB_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(RB[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(RB[[3]]) > 5,
+               max(str_length(rownames(RB[[3]])[1:5])),
+               max(str_length(rownames(RB[[3]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/RB/RB_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(RB[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(RB[[4]]) > 5,
+               max(str_length(rownames(RB[[4]])[1:5])),
+               max(str_length(rownames(RB[[4]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/RB/RB_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(RB[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(RB[[5]]) > 5,
+               max(str_length(rownames(RB[[5]])[1:5])),
+               max(str_length(rownames(RB[[5]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/RB/RB_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(RB[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(RB[[6]]) > 5,
+               max(str_length(rownames(RB[[6]])[1:5])),
+               max(str_length(rownames(RB[[6]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/RB/RB_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(RB[[6]],title)
+  dev.off()
+}
+
+#SenX3-RegX3 system
+if (rowSums(P.abundance[2,2:ncol(P.abundance)]) > 0 & Pcyc.h[2] == 1) {
+  title <- "SenX3-RegX3 system"
+  aa <- ifelse(nrow(X3[[1]]) > 5,
+               max(str_length(rownames(X3[[1]])[1:5])),
+               max(str_length(rownames(X3[[1]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/X3/X3_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(X3[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(X3[[2]]) > 5,
+               max(str_length(rownames(X3[[2]])[1:5])),
+               max(str_length(rownames(X3[[2]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/X3/X3_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(X3[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(X3[[3]]) > 5,
+               max(str_length(rownames(X3[[3]])[1:5])),
+               max(str_length(rownames(X3[[3]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/X3/X3_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(X3[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(X3[[4]]) > 5,
+               max(str_length(rownames(X3[[4]])[1:5])),
+               max(str_length(rownames(X3[[4]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/X3/X3_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(X3[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(X3[[5]]) > 5,
+               max(str_length(rownames(X3[[5]])[1:5])),
+               max(str_length(rownames(X3[[5]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/X3/X3_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(X3[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(X3[[6]]) > 5,
+               max(str_length(rownames(X3[[6]])[1:5])),
+               max(str_length(rownames(X3[[6]]))))
+  pdf("Results/Phosphorus/Host_relative_Group/X3/X3_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(X3[[6]],title)
+  dev.off()
+}
+
+#### Legend
+df <- data.frame(A = c(0,0.1,0.2,0.3,0.4,0.5),
+                 B = c(0.5,0.6,0.7,0.8,0.9,1))
+df <- t(df)
+df1 <- data.frame(A = c("0%","10%","20%","30%","40%","50%"),
+                  B = c("50%","60%","70%","80%","90%","100%"))
+df1 <- t(df1)
+bk <- c(seq(0,1,by = 0.01))
+pheatmap(df,fontsize = 30,cluster_rows = FALSE,fontface = "bold",cluster_cols = FALSE,
+         cellwidth = 80,cellheight = 50,legend = FALSE,breaks = bk,show_rownames = FALSE,
+         color = colorRampPalette(c("white","Red"))(100),show_colnames = FALSE,
+         display_numbers = df1,number_color = "black",border_color = "black",
+         filename = "Results/Phosphorus/Host_relative_Group/Legend_relative_Group.pdf",width = 7,height = 2)
+```
+
+##磷循环β多样性分析及可视化##
+```{r}
+cbbPalette <- c("#B2182B","#56B4E9","#E69F00","#009E73","#F0E442","#0072B2",
+                "#D55E00","#CC79A7","#CC6666","#9999CC","#66CC99","#99999",
+                "#ADD1E5")
+
+dir.create("Results/Phosphorus/Beta diversity")
+dir.create("Results/Phosphorus/Beta diversity/Distance")
+dir.create("Results/Phosphorus/Beta diversity/PCA")
+dir.create("Results/Phosphorus/Beta diversity/PCoA")
+dir.create("Results/Phosphorus/Beta diversity/NMDS")
+
+result <- pcoa.arg(P.abundance[,2:ncol(P.abundance)],group)
+write.table(as.matrix(result[[1]]),"Results/Phosphorus/Beta diversity/Distance/distance_bray_curtis.txt",
+            sep = "\t")
+write.table(result[[2]],"Results/Phosphorus/Beta diversity/Distance/diff_test.txt",sep = "\t",row.names = FALSE)
+write.table(result[[3]],"Results/Phosphorus/Beta diversity/PCoA/P_pcoa.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Phosphorus/Beta diversity/PCoA/P_pcoa_group.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+pdf(file = "Results/Phosphorus/Beta diversity/PCoA/P_pcoa_ellipse.pdf",width = 7.5,height = 5.4)
+result[[5]]
+dev.off()
+pdf(file = "Results/Phosphorus/Beta diversity/PCoA/P_pcoa_label.pdf",width = 7.5,height = 5.4)
+result[[6]]
+dev.off()
+
+result <- pca.arg(P.abundance[,2:ncol(P.abundance)],group)
+write.table(result[[1]],"Results/Phosphorus/Beta diversity/PCA/P_pca.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Phosphorus/Beta diversity/PCA/P_pca_group.pdf",width = 7.5,height = 5.4)
+result[[2]]
+dev.off()
+pdf(file = "Results/Phosphorus/Beta diversity/PCA/P_pca_ellipse.pdf",width = 7.5,height = 5.4)
+result[[3]]
+dev.off()
+pdf(file = "Results/Phosphorus/Beta diversity/PCA/P_pca_label.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+
+result <- nmds.arg(P.abundance[,2:ncol(P.abundance)],group)
+write.table(result[[1]],"Results/Phosphorus/Beta diversity/NMDS/P_stress.txt",sep = "\t",row.names = FALSE)
+write.table(result[[2]],"Results/Phosphorus/Beta diversity/NMDS/P_nmds.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Phosphorus/Beta diversity/NMDS/P_nmds_group.pdf",width = 7.5,height = 5.4)
+result[[3]]
+dev.off()
+pdf(file = "Results/Phosphorus/Beta diversity/NMDS/P_nmds_ellipse.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+pdf(file = "Results/Phosphorus/Beta diversity/NMDS/P_nmds_label.pdf",width = 7.5,height = 5.4)
+result[[5]]
+dev.off()
+```
+
+#S cycle#
+##提取与S cycle有关的子数据##
+```{r}
+#与S cycle有关的KO号
+S <- c("K00956","K00957","K00955","K00860","K00390","K00380","K00381","K00392",
+       "K00958","K00988","K00394","K00395","K11180","K11181","K17222","K17223",
+       "K17224","K17225","K17226","K17227","K17229","K17230","K17218","K08352",
+       "K08354","K04091","K00299","K16968","K16969","K15762","K15765","K03119",
+       "K00456","K17217","K02045","K02046","K02047","K02048","K15551","K15552",
+       "K10831","K15553","K15554","K15555","K01739","K10764","K01738","K17228")
+#提取S cycle有关的KO丰度信息表
+S.ko <- ko[rownames(ko) %in% S,]
+write.table(S.ko,file = "Results/Sulfur/Gene/Abundance/S_cycle_ko_abun.txt",sep = "\t")
+#按照15个硫循环过程合并KO丰度信息表
+S.abundance <- Scyc.abundance(ko)
+write.table(S.abundance,file = "Results/Sulfur/Gene/Abundance/S_cycle_gene_abun.txt",
+            sep = "\t",row.names = FALSE)
+```
+
+##按样品分组绘制硫循环丰度热图和差异性检验##
+```{r}
+dir.create("Results/Sulfur/Gene/Heatmap")
+result <- abun.heatmap.g(S.abundance,group,Group_numb)
+pdf(file = "Results/Sulfur/Gene/Heatmap/S_cycle_gene_abun_group.pdf",
+    width = 3.2 + 0.6*Group_numb,height = 3)
+result[[2]]
+dev.off()
+write.table(result[[1]],"Results/Sulfur/Gene/Heatmap/Diff_S_gene_test.txt",sep = "\t",
+            row.names = FALSE)
+```
+
+##硫循环差异基因分析和可视化##
+```{r}
+dir.create("Results/Sulfur/Gene/Cycle image")
+result <- fold.change(S.abundance,group)
+write.table(result[[1]],"Results/Sulfur/Gene/Cycle image/Gene_fold_change.txt",sep = "\t",
+            row.names = FALSE)
+pdf(file = "Results/Sulfur/Gene/Cycle image/Gene_fold_change.pdf",
+    width = 0.6*Group_numb + 3.2,height = 4.5)
+result[[3]]
+dev.off()
+```
+
+##硫循环模式图可视化##
+```{r}
+#提取15个硫循环类别的热图子集
+ARS.SO4.APS <- result[[2]] + ylim("Assimilatory sulfate reduction, sulfate to APS")
+ARS.APS.PAPS <- result[[2]] + ylim("Assimilatory sulfate reduction, APS to PAPS")
+ARS.PAPS.SO3 <- result[[2]] + ylim("Assimilatory sulfate reduction, PAPS to sulfite")
+ARS.SO3.H2S <- result[[2]] + ylim("Assimilatory sulfate reduction, sulfite to sulfide")
+DRS.SO4.APS <- result[[2]] + ylim("Dissimilatory sulfate reduction and oxidation, sulfate to APS")
+DRS.APS.SO3 <- result[[2]] + ylim("Dissimilatory sulfate reduction and oxidation, APS to sulfite")
+DRS.SO3.H2S <- result[[2]] + ylim("Dissimilatory sulfate reduction and oxidation, sulfite to sulfide")
+SOX <- result[[2]] + ylim("SOX system")
+SC.H2S.S <- result[[2]] + ylim("Sulfide cycling, sulfide to sulfur")
+SC.H2S.Sn <- result[[2]] + ylim("Sulfide cycling, sulfide to (sulfide)n")
+SC.T.H2S <- result[[2]] + ylim("Sulfide cycling, thisulfate to sulfide")
+SM <- result[[2]] + ylim("Sulfur mineralization")
+SU.SO4 <- result[[2]] + ylim("Sulfate uptake")
+SU.SO3 <- result[[2]] + ylim("Sulfite uptake")
+SA <- result[[2]] + ylim("Sulfur assimilation")
+#绘制硫循环模式图
+S.img <- system.file("data", "Scyc.pdf", package = "CNPS.cycle")
+pdf("Results/Sulfur/Gene/Cycle image/S_cyc_fold_change.pdf",width = 13,height = 7)
+gg <- ggplot()
+ggbackground(gg,S.img)
+if (rowSums(S.abundance[1,2:ncol(S.abundance)]) > 0) {
+  print(ARS.SO4.APS,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                  x = 0.225,y = 0.6))
+}
+if (rowSums(S.abundance[2,2:ncol(S.abundance)]) > 0) {
+  print(ARS.APS.PAPS,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                   x = 0.56,y = 0.07))  
+}
+if (rowSums(S.abundance[3,2:ncol(S.abundance)]) > 0) {
+  print(ARS.PAPS.SO3,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                   x = 0.69,y = 0.25))  
+}
+if (rowSums(S.abundance[4,2:ncol(S.abundance)]) > 0) {
+  print(ARS.SO3.H2S,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                  x = 0.725,y = 0.55))  
+}
+if (rowSums(S.abundance[5,2:ncol(S.abundance)]) > 0) {
+  print(DRS.SO4.APS,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                  x = 0.223,y = 0.13))  
+}
+if (rowSums(S.abundance[6,2:ncol(S.abundance)]) > 0) {
+  print(DRS.APS.SO3,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                  x = 0.475,y = 0.15))  
+}
+if (rowSums(S.abundance[7,2:ncol(S.abundance)]) > 0) {
+  print(DRS.SO3.H2S,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                  x = 0.73,y = 0.66)) 
+}
+if (rowSums(S.abundance[8,2:ncol(S.abundance)]) > 0) {
+  print(SOX,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                          x = 0.335,y = 0.89))  
+}
+if (rowSums(S.abundance[9,2:ncol(S.abundance)]) > 0) {
+  print(SC.H2S.S,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                               x = 0.73,y = 0.845))  
+}
+if (rowSums(S.abundance[10,2:ncol(S.abundance)]) > 0) {
+  print(SC.H2S.Sn,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                                x = 0.59,y = 0.79))  
+}
+if (rowSums(S.abundance[11,2:ncol(S.abundance)]) > 0) {
+  print(SC.T.H2S,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                               x = 0.61,y = 0.895)) 
+}
+if (rowSums(S.abundance[12,2:ncol(S.abundance)]) > 0) {
+  print(SM,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                         x = 0.872,y = 0.73)) 
+}
+if (rowSums(S.abundance[13,2:ncol(S.abundance)]) > 0) {
+  print(SU.SO4,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                             x = 0.18,y = 0.83)) 
+}
+if (rowSums(S.abundance[14,2:ncol(S.abundance)]) > 0) {
+  print(SU.SO3,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                             x = 0.81,y = 0.34)) 
+}
+if (rowSums(S.abundance[15,2:ncol(S.abundance)]) > 0) {
+  print(SA,vp = viewport(width = 0.035*Group_numb,height = 0.05,
+                         x = 0.47,y = 0.55)) 
+}
+dev.off()
+```
+
+##硫循环基因宿主微生物的相对丰度统计##
+```{r}
+#检查输入数据中是否存在来自预定义类别的硫循环基因 ID
+#返回一个二进制向量，指示每个类别存在 (1) 或不存在 (0)
+Scyc.h <- Scyc.host(Gene)
+
+dir.create("Results/Sulfur/Host_relative_Group")
+
+#ARS.SO4.APS宿主统计
+if (rowSums(S.abundance[1,2:ncol(S.abundance)]) > 0 & Scyc.h[1] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/ARS.SO4.APS")
+  ARS.SO4.APS <- ARS.SO4.APS(Gene,tax,abundance,group)
+  write.csv(ARS.SO4.APS[[1]],file = "Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_phylum.csv")
+  write.csv(ARS.SO4.APS[[2]],file = "Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_class.csv")
+  write.csv(ARS.SO4.APS[[3]],file = "Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_order.csv")
+  write.csv(ARS.SO4.APS[[4]],file = "Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_family.csv")
+  write.csv(ARS.SO4.APS[[5]],file = "Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_genus.csv")
+  write.csv(ARS.SO4.APS[[6]],file = "Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_species.csv")
+}
+
+#ARS.APS.PAPS宿主统计
+if (rowSums(S.abundance[2,2:ncol(S.abundance)]) > 0 & Scyc.h[2] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/ARS.APS.PAPS")
+  ARS.APS.PAPS <- ARS.APS.PAPS(Gene,tax,abundance,group)
+  write.csv(ARS.APS.PAPS[[1]],file = "Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_phylum.csv")
+  write.csv(ARS.APS.PAPS[[2]],file = "Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_class.csv")
+  write.csv(ARS.APS.PAPS[[3]],file = "Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_order.csv")
+  write.csv(ARS.APS.PAPS[[4]],file = "Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_family.csv")
+  write.csv(ARS.APS.PAPS[[5]],file = "Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_genus.csv")
+  write.csv(ARS.APS.PAPS[[6]],file = "Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_species.csv")
+}
+
+#ARS.PAPS.SO3宿主统计
+if (rowSums(S.abundance[3,2:ncol(S.abundance)]) > 0 & Scyc.h[3] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3")
+  ARS.PAPS.SO3 <- ARS.PAPS.SO3(Gene,tax,abundance,group)
+  write.csv(ARS.PAPS.SO3[[1]],file = "Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_phylum.csv")
+  write.csv(ARS.PAPS.SO3[[2]],file = "Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_class.csv")
+  write.csv(ARS.PAPS.SO3[[3]],file = "Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_order.csv")
+  write.csv(ARS.PAPS.SO3[[4]],file = "Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_family.csv")
+  write.csv(ARS.PAPS.SO3[[5]],file = "Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_genus.csv")
+  write.csv(ARS.PAPS.SO3[[6]],file = "Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_species.csv")
+}
+
+#ARS.SO3.H2S宿主统计
+if (rowSums(S.abundance[4,2:ncol(S.abundance)]) > 0 & Scyc.h[4] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/ARS.SO3.H2S")
+  ARS.SO3.H2S <- ARS.SO3.H2S(Gene,tax,abundance,group)
+  write.csv(ARS.SO3.H2S[[1]],file = "Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_phylum.csv")
+  write.csv(ARS.SO3.H2S[[2]],file = "Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_class.csv")
+  write.csv(ARS.SO3.H2S[[3]],file = "Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_order.csv")
+  write.csv(ARS.SO3.H2S[[4]],file = "Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_family.csv")
+  write.csv(ARS.SO3.H2S[[5]],file = "Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_genus.csv")
+  write.csv(ARS.SO3.H2S[[6]],file = "Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_species.csv")
+}
+
+#DRS.SO4.APS宿主统计
+if (rowSums(S.abundance[5,2:ncol(S.abundance)]) > 0 & Scyc.h[5] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/DRS.SO4.APS")
+  DRS.SO4.APS <- DRS.SO4.APS(Gene,tax,abundance,group)
+  write.csv(DRS.SO4.APS[[1]],file = "Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_phylum.csv")
+  write.csv(DRS.SO4.APS[[2]],file = "Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_class.csv")
+  write.csv(DRS.SO4.APS[[3]],file = "Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_order.csv")
+  write.csv(DRS.SO4.APS[[4]],file = "Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_family.csv")
+  write.csv(DRS.SO4.APS[[5]],file = "Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_genus.csv")
+  write.csv(DRS.SO4.APS[[6]],file = "Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_species.csv")
+}
+
+#DRS.APS.SO3宿主统计
+#if (rowSums(S.abundance[6,2:ncol(S.abundance)]) > 0 & Scyc.h[6] == 1) {
+#  dir.create("Results/Sulfur/Host_relative_Group/DRS.APS.SO3")
+#  DRS.APS.SO3 <- DRS.APS.SO3(Gene,tax,abundance,group)
+#  write.csv(DRS.APS.SO3[[1]],file = "Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_phylum.csv")
+#  write.csv(DRS.APS.SO3[[2]],file = "Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_class.csv")
+#  write.csv(DRS.APS.SO3[[3]],file = "Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_order.csv")
+#  write.csv(DRS.APS.SO3[[4]],file = "Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_family.csv")
+#  write.csv(DRS.APS.SO3[[5]],file = "Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_genus.csv")
+#  write.csv(DRS.APS.SO3[[6]],file = "Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_species.csv")
+#}
+
+#DRS.SO3.H2S宿主统计
+#if (rowSums(S.abundance[7,2:ncol(S.abundance)]) > 0 & Scyc.h[7] == 1) {
+#  dir.create("Results/Sulfur/Host_relative_Group/DRS.SO3.H2S")
+#  DRS.SO3.H2S <- DRS.SO3.H2S(Gene,tax,abundance,group)
+#  write.csv(DRS.SO3.H2S[[1]],file = "Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_phylum.csv")
+#  write.csv(DRS.SO3.H2S[[2]],file = "Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_class.csv")
+#  write.csv(DRS.SO3.H2S[[3]],file = "Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_order.csv")
+#  write.csv(DRS.SO3.H2S[[4]],file = "Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_family.csv")
+#  write.csv(DRS.SO3.H2S[[5]],file = "Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_genus.csv")
+#  write.csv(DRS.SO3.H2S[[6]],file = "Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_species.csv")
+#}
+
+#SOX宿主统计
+if (rowSums(S.abundance[8,2:ncol(S.abundance)]) > 0 & Scyc.h[8] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/SOX")
+  SOX <- SOX(Gene,tax,abundance,group)
+  write.csv(SOX[[1]],file = "Results/Sulfur/Host_relative_Group/SOX/SOX_phylum.csv")
+  write.csv(SOX[[2]],file = "Results/Sulfur/Host_relative_Group/SOX/SOX_class.csv")
+  write.csv(SOX[[3]],file = "Results/Sulfur/Host_relative_Group/SOX/SOX_order.csv")
+  write.csv(SOX[[4]],file = "Results/Sulfur/Host_relative_Group/SOX/SOX_family.csv")
+  write.csv(SOX[[5]],file = "Results/Sulfur/Host_relative_Group/SOX/SOX_genus.csv")
+  write.csv(SOX[[6]],file = "Results/Sulfur/Host_relative_Group/SOX/SOX_species.csv")
+}
+
+#SC.H2S.S宿主统计
+if (rowSums(S.abundance[9,2:ncol(S.abundance)]) > 0 & Scyc.h[9] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/SC.H2S.S")
+  SC.H2S.S <- SC.H2S.S(Gene,tax,abundance,group)
+  write.csv(SC.H2S.S[[1]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_phylum.csv")
+  write.csv(SC.H2S.S[[2]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_class.csv")
+  write.csv(SC.H2S.S[[3]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_order.csv")
+  write.csv(SC.H2S.S[[4]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_family.csv")
+  write.csv(SC.H2S.S[[5]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_genus.csv")
+  write.csv(SC.H2S.S[[6]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_species.csv")
+}
+
+#SC.H2S.Sn宿主统计
+if (rowSums(S.abundance[10,2:ncol(S.abundance)]) > 0 & Scyc.h[10] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/SC.H2S.Sn")
+  SC.H2S.Sn <- SC.H2S.Sn(Gene,tax,abundance,group)
+  write.csv(SC.H2S.Sn[[1]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_phylum.csv")
+  write.csv(SC.H2S.Sn[[2]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_class.csv")
+  write.csv(SC.H2S.Sn[[3]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_order.csv")
+  write.csv(SC.H2S.Sn[[4]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_family.csv")
+  write.csv(SC.H2S.Sn[[5]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_genus.csv")
+  write.csv(SC.H2S.Sn[[6]],file = "Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_species.csv")
+}
+
+#SC.T.H2S宿主统计
+#if (rowSums(S.abundance[11,2:ncol(S.abundance)]) > 0 & Scyc.h[11] == 1) {
+#  dir.create("Results/Sulfur/Host_relative_Group/SC.T.H2S")
+#  SC.T.H2S <- SC.T.H2S(Gene,tax,abundance,group)
+#  write.csv(SC.T.H2S[[1]],file = "Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_phylum.csv")
+#  write.csv(SC.T.H2S[[2]],file = "Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_class.csv")
+#  write.csv(SC.T.H2S[[3]],file = "Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_order.csv")
+#  write.csv(SC.T.H2S[[4]],file = "Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_family.csv")
+#  write.csv(SC.T.H2S[[5]],file = "Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_genus.csv")
+#  write.csv(SC.T.H2S[[6]],file = "Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_species.csv")
+#}
+
+#SM宿主统计
+if (rowSums(S.abundance[12,2:ncol(S.abundance)]) > 0 & Scyc.h[12] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/SM")
+  SM <- SM(Gene,tax,abundance,group)
+  write.csv(SM[[1]],file = "Results/Sulfur/Host_relative_Group/SM/SM_phylum.csv")
+  write.csv(SM[[2]],file = "Results/Sulfur/Host_relative_Group/SM/SM_class.csv")
+  write.csv(SM[[3]],file = "Results/Sulfur/Host_relative_Group/SM/SM_order.csv")
+  write.csv(SM[[4]],file = "Results/Sulfur/Host_relative_Group/SM/SM_family.csv")
+  write.csv(SM[[5]],file = "Results/Sulfur/Host_relative_Group/SM/SM_genus.csv")
+  write.csv(SM[[6]],file = "Results/Sulfur/Host_relative_Group/SM/SM_species.csv")
+}
+
+#SU.SO4宿主统计
+if (rowSums(S.abundance[13,2:ncol(S.abundance)]) > 0 & Scyc.h[13] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/SU.SO4")
+  SU.SO4 <- SU.SO4(Gene,tax,abundance,group)
+  write.csv(SU.SO4[[1]],file = "Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_phylum.csv")
+  write.csv(SU.SO4[[2]],file = "Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_class.csv")
+  write.csv(SU.SO4[[3]],file = "Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_order.csv")
+  write.csv(SU.SO4[[4]],file = "Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_family.csv")
+  write.csv(SU.SO4[[5]],file = "Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_genus.csv")
+  write.csv(SU.SO4[[6]],file = "Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_species.csv")
+}
+
+#SU.SO3宿主统计
+if (rowSums(S.abundance[14,2:ncol(S.abundance)]) > 0 & Scyc.h[14] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/SU.SO3")
+  SU.SO3 <- SU.SO3(Gene,tax,abundance,group)
+  write.csv(SU.SO3[[1]],file = "Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_phylum.csv")
+  write.csv(SU.SO3[[2]],file = "Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_class.csv")
+  write.csv(SU.SO3[[3]],file = "Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_order.csv")
+  write.csv(SU.SO3[[4]],file = "Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_family.csv")
+  write.csv(SU.SO3[[5]],file = "Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_genus.csv")
+  write.csv(SU.SO3[[6]],file = "Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_species.csv")
+}
+
+#SA宿主统计
+if (rowSums(S.abundance[15,2:ncol(S.abundance)]) > 0 & Scyc.h[15] == 1) {
+  dir.create("Results/Sulfur/Host_relative_Group/SA")
+  SA <- SA(Gene,tax,abundance,group)
+  write.csv(SA[[1]],file = "Results/Sulfur/Host_relative_Group/SA/SA_phylum.csv")
+  write.csv(SA[[2]],file = "Results/Sulfur/Host_relative_Group/SA/SA_class.csv")
+  write.csv(SA[[3]],file = "Results/Sulfur/Host_relative_Group/SA/SA_order.csv")
+  write.csv(SA[[4]],file = "Results/Sulfur/Host_relative_Group/SA/SA_family.csv")
+  write.csv(SA[[5]],file = "Results/Sulfur/Host_relative_Group/SA/SA_genus.csv")
+  write.csv(SA[[6]],file = "Results/Sulfur/Host_relative_Group/SA/SA_species.csv")
+}
+```
+
+##硫循环宿主统计结果的可视化##
+```{r}
+#ARS.SO4.APS
+if (rowSums(S.abundance[1,2:ncol(S.abundance)]) > 0 & Scyc.h[1] == 1) {
+  title <- expression(paste("Assimilatory sulfate reduction (SO"["4"]^"2-"," => APS)"))
+  aa <- ifelse(nrow(ARS.SO4.APS[[1]]) > 5,
+               max(str_length(rownames(ARS.SO4.APS[[1]])[1:5])),
+               max(str_length(rownames(ARS.SO4.APS[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO4.APS[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO4.APS[[2]]) > 5,
+               max(str_length(rownames(ARS.SO4.APS[[2]])[1:5])),
+               max(str_length(rownames(ARS.SO4.APS[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO4.APS[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO4.APS[[3]]) > 5,
+               max(str_length(rownames(ARS.SO4.APS[[3]])[1:5])),
+               max(str_length(rownames(ARS.SO4.APS[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO4.APS[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO4.APS[[4]]) > 5,
+               max(str_length(rownames(ARS.SO4.APS[[4]])[1:5])),
+               max(str_length(rownames(ARS.SO4.APS[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO4.APS[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO4.APS[[5]]) > 5,
+               max(str_length(rownames(ARS.SO4.APS[[5]])[1:5])),
+               max(str_length(rownames(ARS.SO4.APS[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO4.APS[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO4.APS[[6]]) > 5,
+               max(str_length(rownames(ARS.SO4.APS[[6]])[1:5])),
+               max(str_length(rownames(ARS.SO4.APS[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO4.APS/ARS.SO4.APS_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO4.APS[[6]],title)
+  dev.off()
+}
+
+#ARS.APS.PAPS
+if (rowSums(S.abundance[2,2:ncol(S.abundance)]) > 0 & Scyc.h[2] == 1) {
+  title <- expression(paste("Assimilatory sulfate reduction (APS"," => PAPS)"))
+  aa <- ifelse(nrow(ARS.APS.PAPS[[1]]) > 5,
+               max(str_length(rownames(ARS.APS.PAPS[[1]])[1:5])),
+               max(str_length(rownames(ARS.APS.PAPS[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.APS.PAPS[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.APS.PAPS[[2]]) > 5,
+               max(str_length(rownames(ARS.APS.PAPS[[2]])[1:5])),
+               max(str_length(rownames(ARS.APS.PAPS[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.APS.PAPS[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.APS.PAPS[[3]]) > 5,
+               max(str_length(rownames(ARS.APS.PAPS[[3]])[1:5])),
+               max(str_length(rownames(ARS.APS.PAPS[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.APS.PAPS[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.APS.PAPS[[4]]) > 5,
+               max(str_length(rownames(ARS.APS.PAPS[[4]])[1:5])),
+               max(str_length(rownames(ARS.APS.PAPS[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.APS.PAPS[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.APS.PAPS[[5]]) > 5,
+               max(str_length(rownames(ARS.APS.PAPS[[5]])[1:5])),
+               max(str_length(rownames(ARS.APS.PAPS[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.APS.PAPS[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.APS.PAPS[[6]]) > 5,
+               max(str_length(rownames(ARS.APS.PAPS[[6]])[1:5])),
+               max(str_length(rownames(ARS.APS.PAPS[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.APS.PAPS/ARS.APS.PAPS_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.APS.PAPS[[6]],title)
+  dev.off()
+}
+
+#ARS.PAPS.SO3
+if (rowSums(S.abundance[3,2:ncol(S.abundance)]) > 0 & Scyc.h[3] == 1) {
+  title <- expression(paste("Assimilatory sulfate reduction (PAPS => ","SO"["3"]^"2-",")"))
+  aa <- ifelse(nrow(ARS.PAPS.SO3[[1]]) > 5,
+               max(str_length(rownames(ARS.PAPS.SO3[[1]])[1:5])),
+               max(str_length(rownames(ARS.PAPS.SO3[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.PAPS.SO3[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.PAPS.SO3[[2]]) > 5,
+               max(str_length(rownames(ARS.PAPS.SO3[[2]])[1:5])),
+               max(str_length(rownames(ARS.PAPS.SO3[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.PAPS.SO3[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.PAPS.SO3[[3]]) > 5,
+               max(str_length(rownames(ARS.PAPS.SO3[[3]])[1:5])),
+               max(str_length(rownames(ARS.PAPS.SO3[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.PAPS.SO3[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.PAPS.SO3[[4]]) > 5,
+               max(str_length(rownames(ARS.PAPS.SO3[[4]])[1:5])),
+               max(str_length(rownames(ARS.PAPS.SO3[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.PAPS.SO3[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.PAPS.SO3[[5]]) > 5,
+               max(str_length(rownames(ARS.PAPS.SO3[[5]])[1:5])),
+               max(str_length(rownames(ARS.PAPS.SO3[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.PAPS.SO3[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.PAPS.SO3[[6]]) > 5,
+               max(str_length(rownames(ARS.PAPS.SO3[[6]])[1:5])),
+               max(str_length(rownames(ARS.PAPS.SO3[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.PAPS.SO3/ARS.PAPS.SO3_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.PAPS.SO3[[6]],title)
+  dev.off()
+}
+
+#ARS.SO3.H2S
+if (rowSums(S.abundance[4,2:ncol(S.abundance)]) > 0 & Scyc.h[4] == 1) {
+  title <- expression(paste("Assimilatory sulfate reduction (SO"["3"]^"2-"," => H"["2"],"S)"))
+  aa <- ifelse(nrow(ARS.SO3.H2S[[1]]) > 5,
+               max(str_length(rownames(ARS.SO3.H2S[[1]])[1:5])),
+               max(str_length(rownames(ARS.SO3.H2S[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO3.H2S[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO3.H2S[[2]]) > 5,
+               max(str_length(rownames(ARS.SO3.H2S[[2]])[1:5])),
+               max(str_length(rownames(ARS.SO3.H2S[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO3.H2S[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO3.H2S[[3]]) > 5,
+               max(str_length(rownames(ARS.SO3.H2S[[3]])[1:5])),
+               max(str_length(rownames(ARS.SO3.H2S[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO3.H2S[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO3.H2S[[4]]) > 5,
+               max(str_length(rownames(ARS.SO3.H2S[[4]])[1:5])),
+               max(str_length(rownames(ARS.SO3.H2S[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO3.H2S[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO3.H2S[[5]]) > 5,
+               max(str_length(rownames(ARS.SO3.H2S[[5]])[1:5])),
+               max(str_length(rownames(ARS.SO3.H2S[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO3.H2S[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(ARS.SO3.H2S[[6]]) > 5,
+               max(str_length(rownames(ARS.SO3.H2S[[6]])[1:5])),
+               max(str_length(rownames(ARS.SO3.H2S[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/ARS.SO3.H2S/ARS.SO3.H2S_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(ARS.SO3.H2S[[6]],title)
+  dev.off()
+}
+
+#### DRS.SO4.APS
+if (rowSums(S.abundance[5,2:ncol(S.abundance)]) > 0 & Scyc.h[5] == 1) {
+  title <- expression(paste("Dissimilatory sulfate reduction and oxidation (SO"["4"]^"2-"," => APS)"))
+  aa <- ifelse(nrow(DRS.SO4.APS[[1]]) > 5,
+               max(str_length(rownames(DRS.SO4.APS[[1]])[1:5])),
+               max(str_length(rownames(DRS.SO4.APS[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DRS.SO4.APS[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(DRS.SO4.APS[[2]]) > 5,
+               max(str_length(rownames(DRS.SO4.APS[[2]])[1:5])),
+               max(str_length(rownames(DRS.SO4.APS[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DRS.SO4.APS[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(DRS.SO4.APS[[3]]) > 5,
+               max(str_length(rownames(DRS.SO4.APS[[3]])[1:5])),
+               max(str_length(rownames(DRS.SO4.APS[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DRS.SO4.APS[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(DRS.SO4.APS[[4]]) > 5,
+               max(str_length(rownames(DRS.SO4.APS[[4]])[1:5])),
+               max(str_length(rownames(DRS.SO4.APS[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DRS.SO4.APS[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(DRS.SO4.APS[[5]]) > 5,
+               max(str_length(rownames(DRS.SO4.APS[[5]])[1:5])),
+               max(str_length(rownames(DRS.SO4.APS[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DRS.SO4.APS[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(DRS.SO4.APS[[6]]) > 5,
+               max(str_length(rownames(DRS.SO4.APS[[6]])[1:5])),
+               max(str_length(rownames(DRS.SO4.APS[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/DRS.SO4.APS/DRS.SO4.APS_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(DRS.SO4.APS[[6]],title)
+  dev.off()
+}
+
+#DRS.APS.SO3
+#if (rowSums(S.abundance[6,2:ncol(S.abundance)]) > 0 & Scyc.h[6] == 1) {
+#  title <- expression(paste("Dissimilatory sulfate reduction and oxidation (APS => ","SO"["3"]^"2-",")"))
+#  aa <- ifelse(nrow(DRS.APS.SO3[[1]]) > 5,
+#               max(str_length(rownames(DRS.APS.SO3[[1]])[1:5])),
+#               max(str_length(rownames(DRS.APS.SO3[[1]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_phylum.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.APS.SO3[[1]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.APS.SO3[[2]]) > 5,
+#               max(str_length(rownames(DRS.APS.SO3[[2]])[1:5])),
+#               max(str_length(rownames(DRS.APS.SO3[[2]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_class.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.APS.SO3[[2]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.APS.SO3[[3]]) > 5,
+#               max(str_length(rownames(DRS.APS.SO3[[3]])[1:5])),
+#               max(str_length(rownames(DRS.APS.SO3[[3]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_order.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.APS.SO3[[3]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.APS.SO3[[4]]) > 5,
+#               max(str_length(rownames(DRS.APS.SO3[[4]])[1:5])),
+#               max(str_length(rownames(DRS.APS.SO3[[4]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_family.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.APS.SO3[[4]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.APS.SO3[[5]]) > 5,
+#               max(str_length(rownames(DRS.APS.SO3[[5]])[1:5])),
+#               max(str_length(rownames(DRS.APS.SO3[[5]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_genus.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.APS.SO3[[5]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.APS.SO3[[6]]) > 5,
+#               max(str_length(rownames(DRS.APS.SO3[[6]])[1:5])),
+#               max(str_length(rownames(DRS.APS.SO3[[6]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.APS.SO3/DRS.APS.SO3_species.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.APS.SO3[[6]],title)
+#  dev.off()
+#}
+
+#DRS.SO3.H2S
+#if (rowSums(S.abundance[7,2:ncol(S.abundance)]) > 0 & Scyc.h[7] == 1) {
+#  title <- expression(paste("Dissimilatory sulfate reduction and oxidation (SO"["3"]^"2-"," => H"["2"],"S)"))
+#  aa <- ifelse(nrow(DRS.SO3.H2S[[1]]) > 5,
+#               max(str_length(rownames(DRS.SO3.H2S[[1]])[1:5])),
+#               max(str_length(rownames(DRS.SO3.H2S[[1]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_phylum.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.SO3.H2S[[1]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.SO3.H2S[[2]]) > 5,
+#               max(str_length(rownames(DRS.SO3.H2S[[2]])[1:5])),
+#               max(str_length(rownames(DRS.SO3.H2S[[2]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_class.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.SO3.H2S[[2]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.SO3.H2S[[3]]) > 5,
+#               max(str_length(rownames(DRS.SO3.H2S[[3]])[1:5])),
+#               max(str_length(rownames(DRS.SO3.H2S[[3]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_order.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.SO3.H2S[[3]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.SO3.H2S[[4]]) > 5,
+#               max(str_length(rownames(DRS.SO3.H2S[[4]])[1:5])),
+#               max(str_length(rownames(DRS.SO3.H2S[[4]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_family.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.SO3.H2S[[4]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.SO3.H2S[[5]]) > 5,
+#               max(str_length(rownames(DRS.SO3.H2S[[5]])[1:5])),
+#               max(str_length(rownames(DRS.SO3.H2S[[5]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_genus.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.SO3.H2S[[5]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(DRS.SO3.H2S[[6]]) > 5,
+#               max(str_length(rownames(DRS.SO3.H2S[[6]])[1:5])),
+#               max(str_length(rownames(DRS.SO3.H2S[[6]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/DRS.SO3.H2S/DRS.SO3.H2S_species.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(DRS.SO3.H2S[[6]],title)
+#  dev.off()
+#}
+
+#SOX
+if (rowSums(S.abundance[8,2:ncol(S.abundance)]) > 0 & Scyc.h[8] == 1) {
+  title <- "SOX system"
+  aa <- ifelse(nrow(SOX[[1]]) > 5,
+               max(str_length(rownames(SOX[[1]])[1:5])),
+               max(str_length(rownames(SOX[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SOX/SOX_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SOX[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(SOX[[2]]) > 5,
+               max(str_length(rownames(SOX[[2]])[1:5])),
+               max(str_length(rownames(SOX[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SOX/SOX_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SOX[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(SOX[[3]]) > 5,
+               max(str_length(rownames(SOX[[3]])[1:5])),
+               max(str_length(rownames(SOX[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SOX/SOX_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SOX[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(SOX[[4]]) > 5,
+               max(str_length(rownames(SOX[[4]])[1:5])),
+               max(str_length(rownames(SOX[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SOX/SOX_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SOX[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(SOX[[5]]) > 5,
+               max(str_length(rownames(SOX[[5]])[1:5])),
+               max(str_length(rownames(SOX[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SOX/SOX_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SOX[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(SOX[[6]]) > 5,
+               max(str_length(rownames(SOX[[6]])[1:5])),
+               max(str_length(rownames(SOX[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SOX/SOX_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SOX[[6]],title)
+  dev.off()
+}
+
+#SC.H2S.S
+if (rowSums(S.abundance[9,2:ncol(S.abundance)]) > 0 & Scyc.h[9] == 1) {
+  title <- expression(paste("Sulfide cycling (H"["2"],"S => S)"))
+  aa <- ifelse(nrow(SC.H2S.S[[1]]) > 5,
+               max(str_length(rownames(SC.H2S.S[[1]])[1:5])),
+               max(str_length(rownames(SC.H2S.S[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.S[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.S[[2]]) > 5,
+               max(str_length(rownames(SC.H2S.S[[2]])[1:5])),
+               max(str_length(rownames(SC.H2S.S[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.S[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.S[[3]]) > 5,
+               max(str_length(rownames(SC.H2S.S[[3]])[1:5])),
+               max(str_length(rownames(SC.H2S.S[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.S[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.S[[4]]) > 5,
+               max(str_length(rownames(SC.H2S.S[[4]])[1:5])),
+               max(str_length(rownames(SC.H2S.S[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.S[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.S[[5]]) > 5,
+               max(str_length(rownames(SC.H2S.S[[5]])[1:5])),
+               max(str_length(rownames(SC.H2S.S[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.S[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.S[[6]]) > 5,
+               max(str_length(rownames(SC.H2S.S[[6]])[1:5])),
+               max(str_length(rownames(SC.H2S.S[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.S/SC.H2S.S_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.S[[6]],title)
+  dev.off()
+}
+
+#SC.H2S.Sn
+if (rowSums(S.abundance[10,2:ncol(S.abundance)]) > 0 & Scyc.h[10] == 1) {
+  title <- expression(paste("Sulfide cycling (H"["2"],"S => (H"["2"],"S)"["n"],")"))
+  aa <- ifelse(nrow(SC.H2S.Sn[[1]]) > 5,
+               max(str_length(rownames(SC.H2S.Sn[[1]])[1:5])),
+               max(str_length(rownames(SC.H2S.Sn[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.Sn[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.Sn[[2]]) > 5,
+               max(str_length(rownames(SC.H2S.Sn[[2]])[1:5])),
+               max(str_length(rownames(SC.H2S.Sn[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.Sn[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.Sn[[3]]) > 5,
+               max(str_length(rownames(SC.H2S.Sn[[3]])[1:5])),
+               max(str_length(rownames(SC.H2S.Sn[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.Sn[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.Sn[[4]]) > 5,
+               max(str_length(rownames(SC.H2S.Sn[[4]])[1:5])),
+               max(str_length(rownames(SC.H2S.Sn[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.Sn[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.Sn[[5]]) > 5,
+               max(str_length(rownames(SC.H2S.Sn[[5]])[1:5])),
+               max(str_length(rownames(SC.H2S.Sn[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.Sn[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(SC.H2S.Sn[[6]]) > 5,
+               max(str_length(rownames(SC.H2S.Sn[[6]])[1:5])),
+               max(str_length(rownames(SC.H2S.Sn[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SC.H2S.Sn/SC.H2S.Sn_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SC.H2S.Sn[[6]],title)
+  dev.off()
+}
+
+#SC.T.H2S
+#if (rowSums(S.abundance[11,2:ncol(S.abundance)]) > 0 & Scyc.h[11] == 1) {
+#  title <- expression(paste("Sulfide cycling (Thisulfate => ","H"["2"],"S)"))
+#  aa <- ifelse(nrow(SC.T.H2S[[1]]) > 5,
+#               max(str_length(rownames(SC.T.H2S[[1]])[1:5])),
+#               max(str_length(rownames(SC.T.H2S[[1]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_phylum.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(SC.T.H2S[[1]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(SC.T.H2S[[2]]) > 5,
+#               max(str_length(rownames(SC.T.H2S[[2]])[1:5])),
+#               max(str_length(rownames(SC.T.H2S[[2]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_class.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(SC.T.H2S[[2]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(SC.T.H2S[[3]]) > 5,
+#               max(str_length(rownames(SC.T.H2S[[3]])[1:5])),
+#               max(str_length(rownames(SC.T.H2S[[3]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_order.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(SC.T.H2S[[3]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(SC.T.H2S[[4]]) > 5,
+#               max(str_length(rownames(SC.T.H2S[[4]])[1:5])),
+#               max(str_length(rownames(SC.T.H2S[[4]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_family.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(SC.T.H2S[[4]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(SC.T.H2S[[5]]) > 5,
+#               max(str_length(rownames(SC.T.H2S[[5]])[1:5])),
+#               max(str_length(rownames(SC.T.H2S[[5]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_genus.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(SC.T.H2S[[5]],title)
+#  dev.off()
+#  aa <- ifelse(nrow(SC.T.H2S[[6]]) > 5,
+#               max(str_length(rownames(SC.T.H2S[[6]])[1:5])),
+#               max(str_length(rownames(SC.T.H2S[[6]]))))
+#  pdf("Results/Sulfur/Host_relative_Group/SC.T.H2S/SC.T.H2S_species.pdf",
+#      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+#  host.ratio(SC.T.H2S[[6]],title)
+#  dev.off()
+#}
+
+#SM
+if (rowSums(S.abundance[12,2:ncol(S.abundance)]) > 0 & Scyc.h[12] == 1) {
+  title <- "Sulfur mineralization"
+  aa <- ifelse(nrow(SM[[1]]) > 5,
+               max(str_length(rownames(SM[[1]])[1:5])),
+               max(str_length(rownames(SM[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SM/SM_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SM[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(SM[[2]]) > 5,
+               max(str_length(rownames(SM[[2]])[1:5])),
+               max(str_length(rownames(SM[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SM/SM_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SM[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(SM[[3]]) > 5,
+               max(str_length(rownames(SM[[3]])[1:5])),
+               max(str_length(rownames(SM[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SM/SM_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SM[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(SM[[4]]) > 5,
+               max(str_length(rownames(SM[[4]])[1:5])),
+               max(str_length(rownames(SM[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SM/SM_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SM[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(SM[[5]]) > 5,
+               max(str_length(rownames(SM[[5]])[1:5])),
+               max(str_length(rownames(SM[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SM/SM_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SM[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(SM[[6]]) > 5,
+               max(str_length(rownames(SM[[6]])[1:5])),
+               max(str_length(rownames(SM[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SM/SM_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SM[[6]],title)
+  dev.off()
+}
+
+#SU.SO4
+if (rowSums(S.abundance[13,2:ncol(S.abundance)]) > 0 & Scyc.h[13] == 1) {
+  title <- expression(paste("SO"["4"]^"2-"," uptake"))
+  aa <- ifelse(nrow(SU.SO4[[1]]) > 5,
+               max(str_length(rownames(SU.SO4[[1]])[1:5])),
+               max(str_length(rownames(SU.SO4[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO4[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO4[[2]]) > 5,
+               max(str_length(rownames(SU.SO4[[2]])[1:5])),
+               max(str_length(rownames(SU.SO4[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO4[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO4[[3]]) > 5,
+               max(str_length(rownames(SU.SO4[[3]])[1:5])),
+               max(str_length(rownames(SU.SO4[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO4[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO4[[4]]) > 5,
+               max(str_length(rownames(SU.SO4[[4]])[1:5])),
+               max(str_length(rownames(SU.SO4[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO4[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO4[[5]]) > 5,
+               max(str_length(rownames(SU.SO4[[5]])[1:5])),
+               max(str_length(rownames(SU.SO4[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO4[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO4[[6]]) > 5,
+               max(str_length(rownames(SU.SO4[[6]])[1:5])),
+               max(str_length(rownames(SU.SO4[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO4/SU.SO4_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO4[[6]],title)
+  dev.off()
+}
+
+#SU.SO3
+if (rowSums(S.abundance[14,2:ncol(S.abundance)]) > 0 & Scyc.h[14] == 1) {
+  title <- expression(paste("SO"["3"]^"2-"," uptake"))
+  aa <- ifelse(nrow(SU.SO3[[1]]) > 5,
+               max(str_length(rownames(SU.SO3[[1]])[1:5])),
+               max(str_length(rownames(SU.SO3[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO3[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO3[[2]]) > 5,
+               max(str_length(rownames(SU.SO3[[2]])[1:5])),
+               max(str_length(rownames(SU.SO3[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO3[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO3[[3]]) > 5,
+               max(str_length(rownames(SU.SO3[[3]])[1:5])),
+               max(str_length(rownames(SU.SO3[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO3[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO3[[4]]) > 5,
+               max(str_length(rownames(SU.SO3[[4]])[1:5])),
+               max(str_length(rownames(SU.SO3[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO3[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO3[[5]]) > 5,
+               max(str_length(rownames(SU.SO3[[5]])[1:5])),
+               max(str_length(rownames(SU.SO3[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO3[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(SU.SO3[[6]]) > 5,
+               max(str_length(rownames(SU.SO3[[6]])[1:5])),
+               max(str_length(rownames(SU.SO3[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SU.SO3/SU.SO3_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SU.SO3[[6]],title)
+  dev.off()
+}
+
+#SA
+if (rowSums(S.abundance[15,2:ncol(S.abundance)]) > 0 & Scyc.h[15] == 1) {
+  title <- "Sulfur assimilation"
+  aa <- ifelse(nrow(SA[[1]]) > 5,
+               max(str_length(rownames(SA[[1]])[1:5])),
+               max(str_length(rownames(SA[[1]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SA/SA_phylum.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SA[[1]],title)
+  dev.off()
+  aa <- ifelse(nrow(SA[[2]]) > 5,
+               max(str_length(rownames(SA[[2]])[1:5])),
+               max(str_length(rownames(SA[[2]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SA/SA_class.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SA[[2]],title)
+  dev.off()
+  aa <- ifelse(nrow(SA[[3]]) > 5,
+               max(str_length(rownames(SA[[3]])[1:5])),
+               max(str_length(rownames(SA[[3]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SA/SA_order.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SA[[3]],title)
+  dev.off()
+  aa <- ifelse(nrow(SA[[4]]) > 5,
+               max(str_length(rownames(SA[[4]])[1:5])),
+               max(str_length(rownames(SA[[4]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SA/SA_family.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SA[[4]],title)
+  dev.off()
+  aa <- ifelse(nrow(SA[[5]]) > 5,
+               max(str_length(rownames(SA[[5]])[1:5])),
+               max(str_length(rownames(SA[[5]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SA/SA_genus.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SA[[5]],title)
+  dev.off()
+  aa <- ifelse(nrow(SA[[6]]) > 5,
+               max(str_length(rownames(SA[[6]])[1:5])),
+               max(str_length(rownames(SA[[6]]))))
+  pdf("Results/Sulfur/Host_relative_Group/SA/SA_species.pdf",
+      width = ifelse(aa > 40,aa*0.1 + 0.5*Group_numb,3.2 + 0.5*Group_numb),height = 3.5)
+  host.ratio(SA[[6]],title)
+  dev.off()
+}
+
+#### Legend
+df <- data.frame(A = c(0,0.1,0.2,0.3,0.4,0.5),
+                 B = c(0.5,0.6,0.7,0.8,0.9,1))
+df <- t(df)
+df1 <- data.frame(A = c("0%","10%","20%","30%","40%","50%"),
+                  B = c("50%","60%","70%","80%","90%","100%"))
+df1 <- t(df1)
+bk <- c(seq(0,1,by = 0.01))
+pheatmap(df,fontsize = 30,cluster_rows = FALSE,fontface = "bold",cluster_cols = FALSE,
+         cellwidth = 80,cellheight = 50,legend = FALSE,breaks = bk,show_rownames = FALSE,
+         color = colorRampPalette(c("white","Red"))(100),show_colnames = FALSE,
+         display_numbers = df1,number_color = "black",border_color = "black",
+         filename = "Results/Sulfur/Host_relative_Group/Legend_relative_Group.pdf",width = 7,height = 2)
+```
+
+##硫循环β多样性分析及可视化##
+```{r}
+cbbPalette <- c("#B2182B","#56B4E9","#E69F00","#009E73","#F0E442","#0072B2",
+                "#D55E00","#CC79A7","#CC6666","#9999CC","#66CC99","#99999",
+                "#ADD1E5")
+
+dir.create("Results/Sulfur/Beta diversity")
+dir.create("Results/Sulfur/Beta diversity/Distance")
+dir.create("Results/Sulfur/Beta diversity/PCA")
+dir.create("Results/Sulfur/Beta diversity/PCoA")
+dir.create("Results/Sulfur/Beta diversity/NMDS")
+
+result <- pcoa.arg(S.abundance[,2:ncol(S.abundance)],group)
+write.table(as.matrix(result[[1]]),"Results/Sulfur/Beta diversity/Distance/distance_bray_curtis.txt",
+            sep = "\t")
+write.table(result[[2]],"Results/Sulfur/Beta diversity/Distance/diff_test.txt",sep = "\t",row.names = FALSE)
+write.table(result[[3]],"Results/Sulfur/Beta diversity/PCoA/S_pcoa.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Sulfur/Beta diversity/PCoA/S_pcoa_group.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+pdf(file = "Results/Sulfur/Beta diversity/PCoA/S_pcoa_ellipse.pdf",width = 7.5,height = 5.4)
+result[[5]]
+dev.off()
+pdf(file = "Results/Sulfur/Beta diversity/PCoA/S_pcoa_label.pdf",width = 7.5,height = 5.4)
+result[[6]]
+dev.off()
+
+result <- pca.arg(S.abundance[,2:ncol(S.abundance)],group)
+write.table(result[[1]],"Results/Sulfur/Beta diversity/PCA/S_pca.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Sulfur/Beta diversity/PCA/S_pca_group.pdf",width = 7.5,height = 5.4)
+result[[2]]
+dev.off()
+pdf(file = "Results/Sulfur/Beta diversity/PCA/S_pca_ellipse.pdf",width = 7.5,height = 5.4)
+result[[3]]
+dev.off()
+pdf(file = "Results/Sulfur/Beta diversity/PCA/S_pca_label.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+
+result <- nmds.arg(S.abundance[,2:ncol(S.abundance)],group)
+write.table(result[[1]],"Results/Sulfur/Beta diversity/NMDS/S_stress.txt",sep = "\t",row.names = FALSE)
+write.table(result[[2]],"Results/Sulfur/Beta diversity/NMDS/S_nmds.txt",sep = "\t",row.names = FALSE)
+pdf(file = "Results/Sulfur/Beta diversity/NMDS/S_nmds_group.pdf",width = 7.5,height = 5.4)
+result[[3]]
+dev.off()
+pdf(file = "Results/Sulfur/Beta diversity/NMDS/S_nmds_ellipse.pdf",width = 7.5,height = 5.4)
+result[[4]]
+dev.off()
+pdf(file = "Results/Sulfur/Beta diversity/NMDS/S_nmds_label.pdf",width = 7.5,height = 5.4)
+result[[5]]
+dev.off()
+```
