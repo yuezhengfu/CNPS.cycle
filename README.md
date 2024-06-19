@@ -6,8 +6,13 @@ Zhengfu Yue, Jing Zhang, Rui Kou, Tianshun Liu, Ye Tao, Liang Zeng, Zelong Zhao,
 # Install
 CNPS.cycle is available on Github, you can install it by:
 ```{r}
+#Online installation
 library(devtools) 
 install_github("yuezhengfu/CNPS.cycle")
+#Local installation
+1.
+
+
 ```
 # Workflow
 ![Figure 1](https://github.com/yuezhengfu/CNPS.cycle/assets/39332214/1cbe8b07-1e90-4a4c-973e-5ab89d34a2a9)
