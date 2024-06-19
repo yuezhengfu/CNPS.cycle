@@ -10,6 +10,6 @@ library(devtools)
 install_github("yuezhengfu/CNPS.cycle")
 ```
 # Workflow
-![Fig1](https://github.com/yuezhengfu/CNPS.cycle/assets/39332214/1e7c353d-2bac-44b7-94d4-9753bcf869f4)
+![Figure 1](https://github.com/yuezhengfu/CNPS.cycle/assets/39332214/1cbe8b07-1e90-4a4c-973e-5ab89d34a2a9)
 # Result layout
 ![1234](https://github.com/yuezhengfu/CNPS.cycle/assets/39332214/875f9ff2-978d-41fd-9b52-f5056e706ef5)
