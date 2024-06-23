@@ -6,7 +6,7 @@ Zhengfu Yue, Jing Zhang, Rui Kou, Tianshun Liu, Ye Tao, Liang Zeng, Zelong Zhao,
 # Install
 CNPS.cycle is available on Github, you can install it by:
 ```{r}
-#Local installation(recommended)
+#Local installation (recommended, R ≥ 4.2.0)
 1.Download "pkgs_local.zip" from
 2.Unzip the `pkgs_local.zip` file and set it as the current working directory.
 3.install.packages("CNPSInstaller_0.1.1.zip", repos = NULL)
@@ -14,7 +14,7 @@ CNPS.cycle is available on Github, you can install it by:
 5.CNPS_Installer(use_local = T ) #Install dependencies
 6.CNPS_Install(use_local = T,pkg_type = "default" )
 
-#Online installation
+#Online installation (R ≥ 4.2.0)
 library(devtools) 
 install_github("yuezhengfu/CNPS.cycle")
 
