@@ -18,7 +18,7 @@ CNPS.cycle is available on Github, you can install it by:
 library(devtools) 
 install_github("yuezhengfu/CNPS.cycle")
 ```
-#User Guide
+# User Guide
 Download https://github.com/yuezhengfu/CNPS.cycle/releases/download/V1.0.0/SampleData_AutomatedExecutionScript.Rmd, a complete demonstration script. After ensuring that CNPS.cycle is correctly installed, open SampleData_AutomatedExecutionScript.Rmd in RStudio. Click "Run all" to automatically execute the script using the built-in dataset. All results will be stored in a directory named "Result," located in the same path as SampleData_AutomatedExecutionScript.Rmd.
  
 # Workflow
