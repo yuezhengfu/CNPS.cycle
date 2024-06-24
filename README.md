@@ -19,7 +19,10 @@ library(devtools)
 install_github("yuezhengfu/CNPS.cycle")
 ```
 # User Guide
+#Demonstration using built-in dataset
 Download https://github.com/yuezhengfu/CNPS.cycle/releases/download/V1.0.0/SampleData_AutomatedExecutionScript.Rmd, a complete demonstration script. After ensuring that CNPS.cycle is correctly installed, open SampleData_AutomatedExecutionScript.Rmd in RStudio. Click "Run all" to automatically execute the script using the built-in dataset. All results will be stored in a directory named "Result," located in the same path as SampleData_AutomatedExecutionScript.Rmd.
+#Processing your own data
+Preparing your data in the same format as the built-in dataset is crucial. Based on user feedback, we recommend not opening your data in Excel beforehand due to its row limit, which can result in data loss. Instead, in the "Load package and built-in data" section of SampleData_AutomatedExecutionScript.Rmd, read your datasets one by one. Once the data is successfully loaded, click "Run all" to execute the script.
  
 # Workflow
 ![Figure 1](https://github.com/yuezhengfu/CNPS.cycle/assets/39332214/1cbe8b07-1e90-4a4c-973e-5ab89d34a2a9)
