@@ -1,0 +1,15 @@
+"Type"	"Normality.test"	"Normality.p.value"	"Normality.method"	"Non.normality.p.value"	"Non.normality.method"	"value"
+"Nitrate uptake"	"normality"	7.21826371891859e-05	"ANOVA"	7.21826371891859e-05	"Kruskal-Wallis"	1
+"Nitrite uptake"	"normality"	7.21826371891859e-05	"ANOVA"	7.21826371891859e-05	"Kruskal-Wallis"	1
+"Ammonia uptake"	"normality"	1.61227728307683e-08	"ANOVA"	1.61227728307683e-08	"Kruskal-Wallis"	1
+"Nitrogen mineralization, organ-N to ammonia"	"non-normality"	1.02023532401621e-06	"ANOVA"	1.02023532401621e-06	"Kruskal-Wallis"	1
+"Nitrogen assimilation, ammonia to organ-N"	"non-normality"	1.34969979676591e-08	"ANOVA"	1.34969979676591e-08	"Kruskal-Wallis"	1
+"Nitrification, hydroxylamine to ammonia"	"non-normality"	3.68594154260028e-10	"ANOVA"	3.68594154260028e-10	"Kruskal-Wallis"	1
+"Nitrogen fixation, nitrogen to ammonia"	"normality"	3.53627880417315e-05	"ANOVA"	3.53627880417315e-05	"Kruskal-Wallis"	1
+"Denitrification, nitrous oxide to nitrogen"	"normality"	0.000463627700364279	"ANOVA"	0.000463627700364279	"Kruskal-Wallis"	1
+"Denitrification, nitric oxide to nitrous oxide"	"non-normality"	2.36484147131732e-09	"ANOVA"	2.36484147131732e-09	"Kruskal-Wallis"	1
+"Denitrification, nitrite to nitric oxide"	"normality"	1.04695392221143e-07	"ANOVA"	1.04695392221143e-07	"Kruskal-Wallis"	1
+"Assimilatory nitrate reduction, nitrite to ammonia"	"normality"	1.34986777445415e-05	"ANOVA"	1.34986777445415e-05	"Kruskal-Wallis"	1
+"Assimilatory nitrate reduction, nitrate to nitrite"	"normality"	0.0096821413518458	"ANOVA"	0.0096821413518458	"Kruskal-Wallis"	1
+"Dissimilatory nitrate reduction, nitrite to ammonia"	"non-normality"	8.19968975877767e-09	"ANOVA"	8.19968975877767e-09	"Kruskal-Wallis"	1
+"Dissimilatory nitrate reduction, nitrate to nitrite"	"non-normality"	5.00782784290866e-09	"ANOVA"	5.00782784290866e-09	"Kruskal-Wallis"	1
