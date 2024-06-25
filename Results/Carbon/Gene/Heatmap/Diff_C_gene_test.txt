@@ -1,0 +1,6 @@
+"Type"	"Normality.test"	"Normality.p.value"	"Normality.method"	"Non.normality.p.value"	"Non.normality.method"	"value"
+"Methanogenesis"	"normality"	0.000301681485650149	"ANOVA"	0.000301681485650149	"Kruskal-Wallis"	1
+"Fermentation"	"non-normality"	2.06270283641006e-07	"ANOVA"	2.06270283641006e-07	"Kruskal-Wallis"	1
+"Anaerobic C fixation"	"normality"	1.21659872154086e-06	"ANOVA"	1.21659872154086e-06	"Kruskal-Wallis"	1
+"Aerobic respiration"	"non-normality"	7.5642539884263e-08	"ANOVA"	7.5642539884263e-08	"Kruskal-Wallis"	1
+"Aerobic C fixation"	"non-normality"	8.6729708108645e-09	"ANOVA"	8.6729708108645e-09	"Kruskal-Wallis"	1
