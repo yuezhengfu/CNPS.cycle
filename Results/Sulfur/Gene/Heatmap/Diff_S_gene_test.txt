@@ -1,0 +1,16 @@
+"Type"	"Normality.test"	"Normality.p.value"	"Normality.method"	"Non.normality.p.value"	"Non.normality.method"	"value"
+"Sulfur assimilation"	"non-normality"	1.27043497215022e-05	"ANOVA"	1.27043497215022e-05	"Kruskal-Wallis"	1
+"Sulfite uptake"	"non-normality"	2.99742793891832e-08	"ANOVA"	2.99742793891832e-08	"Kruskal-Wallis"	1
+"Sulfate uptake"	"non-normality"	7.91635496210583e-06	"ANOVA"	7.91635496210583e-06	"Kruskal-Wallis"	1
+"Sulfur mineralization"	"non-normality"	6.38851750386683e-07	"ANOVA"	6.38851750386683e-07	"Kruskal-Wallis"	1
+"Sulfide cycling, thisulfate to sulfide"	"non-normality"	7.23581425593933e-12	"ANOVA"	7.23581425593933e-12	"Kruskal-Wallis"	1
+"Sulfide cycling, sulfide to (sulfide)n"	"normality"	9.01197522877023e-05	"ANOVA"	9.01197522877023e-05	"Kruskal-Wallis"	1
+"Sulfide cycling, sulfide to sulfur"	"normality"	3.26223954699775e-05	"ANOVA"	3.26223954699775e-05	"Kruskal-Wallis"	1
+"SOX system"	"normality"	1.95480345531338e-07	"ANOVA"	1.95480345531338e-07	"Kruskal-Wallis"	1
+"Dissimilatory sulfate reduction and oxidation, sulfite to sulfide"	"non-normality"	7.3856066518843e-06	"ANOVA"	7.3856066518843e-06	"Kruskal-Wallis"	1
+"Dissimilatory sulfate reduction and oxidation, APS to sulfite"	"non-normality"	3.04824212292487e-07	"ANOVA"	3.04824212292487e-07	"Kruskal-Wallis"	1
+"Dissimilatory sulfate reduction and oxidation, sulfate to APS"	"non-normality"	4.46312466516544e-10	"ANOVA"	4.46312466516544e-10	"Kruskal-Wallis"	1
+"Assimilatory sulfate reduction, sulfite to sulfide"	"normality"	1.10126751281182e-06	"ANOVA"	1.10126751281182e-06	"Kruskal-Wallis"	1
+"Assimilatory sulfate reduction, PAPS to sulfite"	"normality"	0.0210736398508786	"ANOVA"	0.0210736398508786	"Kruskal-Wallis"	1
+"Assimilatory sulfate reduction, APS to PAPS"	"non-normality"	1.72209908988841e-07	"ANOVA"	1.72209908988841e-07	"Kruskal-Wallis"	1
+"Assimilatory sulfate reduction, sulfate to APS"	"non-normality"	1.60609576184024e-09	"ANOVA"	1.60609576184024e-09	"Kruskal-Wallis"	1
