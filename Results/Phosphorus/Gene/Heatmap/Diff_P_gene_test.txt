@@ -1,3 +1,0 @@
-"Type"	"P"	"value"	"value2"
-"SenX3-RegX3 system"	3.8087665756833e-08	1	NA
-"PhoR-PhoB system"	5.06101814182702e-05	1	NA
