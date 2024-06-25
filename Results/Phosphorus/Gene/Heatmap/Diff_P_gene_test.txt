@@ -1,0 +1,3 @@
+"Type"	"Normality.test"	"Normality.p.value"	"Normality.method"	"Non.normality.p.value"	"Non.normality.method"	"value"
+"SenX3-RegX3 system"	"non-normality"	3.8087665756833e-08	"ANOVA"	3.8087665756833e-08	"Kruskal-Wallis"	1
+"PhoR-PhoB system"	"non-normality"	5.06101814182702e-05	"ANOVA"	5.06101814182702e-05	"Kruskal-Wallis"	1
