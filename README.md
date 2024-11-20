@@ -3,7 +3,7 @@ This is an R package for element cycle analysis using metagenomic data.
 ![Graphical abstract](https://github.com/yuezhengfu/CNPS.cycle/assets/39332214/fa656480-d3f6-416b-8874-2d975ba44fcf)
 
 # Citation
-Zhengfu Yue, Jing Zhang, Rui Kou, Tianshun Liu, Ye Tao, Liang Zeng, Zelong Zhao, Shoushan Sheng, Qinfen Li, Jing Zhang, Yukun Zou. CNPS.cycle: Streaming Shortgun Metagenomic Data Analysis for Soil Biogeochemical Cycles. Soil Biology & Biochemistry (Submitted)
+Zhengfu Yue, Jing Zhang, Rui Kou, Tianshun Liu,  Shoushan Sheng, Ye Tao, Liang Zeng, Zelong Zhao, Qinfen Li, Jing Zhang, Yukun Zou. CNPS.cycle: Streaming Shortgun Metagenomic Data Analysis for Soil Biogeochemical Cycles. Bioresource Technology (Submitted)
 
 # Install
 CNPS.cycle is available on Github, you can install it by:
